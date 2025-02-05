@@ -11,3 +11,34 @@ Pourquoi est-ce important ? Estimer le pronostic d’un patient est essentiel po
 Des prédictions précises des risques pourraient donc conduire à de meilleures décisions cliniques, une meilleure qualité de vie des patients, et à une utilisation plus efficace des ressources au sein des établissements de santé.
 
 Ce challenge offre aux participants une occasion unique de travailler avec des données réelles provenant de 24 centres cliniques et de contribuer à une application concrète de la science des données au domaine médical.
+
+
+## Étapes pour installer les dépendances
+
+1. Clonez ce dépôt GitHub :
+
+   ```bash
+   git clone https://github.com/Riad-Attou/qrt_ml.git
+   cd qrt_ml
+   ```
+
+2. Exécutez la commande suivante pour installer toutes les dépendances répertoriées :
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+
+
+## Auteurs
+
+- Riad Attou : attou.rd@gmail.com
+- Asma El Mouhsine : 
+- Salim EL Ouahdani : salim.ouahdani@gmail.com
+- Marin Mathé : 
+- Ayman Rachidi : ayman.rachidi@etu.ec-lyon.fr
+- Naoya Senoo : 
+- Anas Tber : anastber755@gmail.com
+---
+
+*Challenge Data - QRT - Centrale Lyon - 2024-2025*
