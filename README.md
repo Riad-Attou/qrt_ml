@@ -34,7 +34,7 @@ Ce challenge offre aux participants une occasion unique de travailler avec des d
 
 - Riad Attou : attou.rd@gmail.com
 - Asma El Mouhsine : 
-- Salim EL Ouahdani : salim.ouahdani@gmail.com
+- Salim El Ouahdani : salim.ouahdani@gmail.com
 - Marin Mathé : 
 - Ayman Rachidi : ayman.rachidi@etu.ec-lyon.fr
 - Naoya Senoo : 
