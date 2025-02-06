@@ -1,6 +1,6 @@
 # Définitions des données
 
-## Données Cliniques 
+## Données Cliniques
 
 - **BM_BLAST** (Blastes dans la moelle osseuse) :  
   Les blastes sont des cellules immatures produites dans la moelle osseuse qui, en temps normal, se transforment en cellules sanguines fonctionnelles (globules rouges, globules blancs et plaquettes). Dans la leucémie, un excès de blastes empêche la production normale des cellules du sang.  
