@@ -33,9 +33,9 @@ Ce challenge offre aux participants une occasion unique de travailler avec des d
 ## Auteurs
 
 - Riad Attou : attou.rd@gmail.com
-- Asma El Mouhsine : 
+- Asma El Mouhsine : asma.elmouhsine@outlook.com
 - Salim El Ouahdani : salim.ouahdani@gmail.com
-- Marin Mathé : 
+- Marin Mathé : mathe.marin22@gmail.com
 - Ayman Rachidi : ayman.rachidi@etu.ec-lyon.fr
 - Naoya Senoo : 
 - Anas Tber : anastber755@gmail.com
