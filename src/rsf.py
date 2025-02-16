@@ -1,11 +1,8 @@
-import itertools
-
 import numpy as np
 import pandas as pd
-import xgboost as xgb
-from lifelines import CoxPHFitter
-from sklearn.model_selection import train_test_split
-from sksurv.metrics import concordance_index_ipcw
+from sklearn.model_selection import GridSearchCV, train_test_split
+from sksurv.ensemble import RandomSurvivalForest
+from sksurv.metrics import concordance_index_censored, concordance_index_ipcw
 from sksurv.util import Surv
 
 #############################################
@@ -285,13 +282,12 @@ print("NaN dans OS_YEARS :", merged_df["OS_YEARS"].isnull().sum())
 merged_df = merged_df.dropna(subset=["OS_YEARS"])
 print("Nombre de lignes après nettoyage :", len(merged_df))
 
-data_for_model = merged_df.copy()  # merged_df contient déjà la colonne ID
 
-#############################################
-# 4. Préparation pour XGBoost
-#############################################
+# S'assurer que OS_YEARS est numérique et supprimer les lignes manquantes
+merged_df["OS_YEARS"] = pd.to_numeric(merged_df["OS_YEARS"], errors="coerce")
+merged_df = merged_df.dropna(subset=["OS_YEARS"])
 
-# Définir la liste des features incluant celles basées sur les connaissances avancées
+# Définir la liste des features (cliniques et moléculaires) issues de votre pipeline de feature engineering
 feature_cols = [
     "nb_del",
     "nb_t",
@@ -314,167 +310,124 @@ feature_cols = [
     "npm1_mutated",
     "flt3_mutated",
 ]
-X = merged_df[feature_cols]
-IDs = data_for_model["ID"]
-y_time = pd.to_numeric(merged_df["OS_YEARS"], errors="coerce")
-y_event = merged_df["OS_STATUS"]
 
-# S'assurer qu'il n'y a pas de NaN dans y_time
-data = merged_df.dropna(subset=["OS_YEARS"])
-X = data[feature_cols]
-y_time = pd.to_numeric(data["OS_YEARS"], errors="coerce")
-y_event = data["OS_STATUS"]
+# Si certaines colonnes (issues de get_dummies) sont de type object, les convertir en numérique
+for col in [
+    "cyto_risk_favorable",
+    "cyto_risk_intermediaire",
+    "cyto_risk_defavorable",
+]:
+    merged_df[col] = pd.to_numeric(merged_df[col], errors="coerce")
 
-# Séparer en train et test en conservant aussi les ID
-(
-    X_train,
-    X_test,
-    y_time_train,
-    y_time_test,
-    y_event_train,
-    y_event_test,
-    IDs_train,
-    IDs_test,
-) = train_test_split(X, y_time, y_event, IDs, test_size=0.2, random_state=42)
+# Extraire les features et définir la cible
+X = merged_df[feature_cols].copy()
+# Les cibles : temps de survie (OS_YEARS) et indicateur d'événement (OS_STATUS)
+y_time = merged_df["OS_YEARS"].values
+y_event = merged_df["OS_STATUS"].values.astype(bool)
 
-# Pour XGBoost, utiliser OS_STATUS comme sample weights (1 = événement, 0 = censuré)
-w_train = y_event_train
-w_test = y_event_test
+# Créer le tableau structuré requis par scikit-survival
+y_structured = Surv.from_arrays(event=y_event, time=y_time)
 
-# Créer la DMatrix pour XGBoost
-dtrain = xgb.DMatrix(X_train, label=y_time_train, weight=w_train)
-dtest = xgb.DMatrix(X_test, label=y_time_test, weight=w_test)
+IDs = merged_df["ID"]
 
 #############################################
-# 5. Entraînement du modèle XGBoost pour la survie
+# 2. Séparation en ensembles d'entraînement et de test
 #############################################
 
+# Split utilisant le tableau structuré
+X_train, X_test, y_train, y_test, IDs_train, IDs_test = train_test_split(
+    X, y_structured, IDs, test_size=0.2, random_state=42
+)
+
+#############################################
+# 3. Tuning et entraînement du modèle RSF
+#############################################
+
+# Instancier un Random Survival Forest
+rsf = RandomSurvivalForest(random_state=42, n_jobs=-1)
+
+# Définir une grille d'hyperparamètres à explorer
 param_grid = {
-    "eta": [0.003],
+    "n_estimators": [200],
     "max_depth": [3],
-    "min_child_weight": [1],
-    "subsample": [0.8],
-    "colsample_bytree": [0.8],
+    "min_samples_split": [2],
+    "min_samples_leaf": [1],
+    "max_features": [0.8],
 }
-combinations = list(
-    itertools.product(
-        param_grid["eta"],
-        param_grid["max_depth"],
-        param_grid["min_child_weight"],
-        param_grid["subsample"],
-        param_grid["colsample_bytree"],
-    )
+
+
+# Définir une fonction de score qui utilise le c-index censuré
+def rsf_score(estimator, X, y):
+    # Prédire des scores de risque; on prend l'opposé pour que des scores plus élevés indiquent un risque plus grand
+    risk_scores = estimator.predict(X)
+    return concordance_index_censored(y["event"], y["time"], risk_scores)[0]
+
+
+# GridSearchCV avec 5-fold cross-validation
+grid_search = GridSearchCV(
+    rsf,
+    param_grid,
+    cv=5,
+    scoring=rsf_score,
+    n_jobs=-1,
+    verbose=2,  # Augmentez la verbosité (2 affiche plus d'informations)
 )
-best_score = float("inf")
-best_params = None
-best_num_round = None
+grid_search.fit(X_train, y_train)
 
-print("Recherche des meilleurs hyperparamètres...")
-for (
-    eta,
-    max_depth,
-    min_child_weight,
-    subsample,
-    colsample_bytree,
-) in combinations:
-    params = {
-        "objective": "survival:cox",
-        "eval_metric": "cox-nloglik",
-        "eta": eta,
-        "max_depth": max_depth,
-        "min_child_weight": min_child_weight,
-        "subsample": subsample,
-        "colsample_bytree": colsample_bytree,
-        "seed": 42,
-    }
-    cv_results = xgb.cv(
-        params,
-        dtrain,
-        num_boost_round=2500,
-        nfold=5,
-        early_stopping_rounds=50,
-        verbose_eval=False,
-    )
-    current_score = cv_results["test-cox-nloglik-mean"].min()
-    current_round = cv_results["test-cox-nloglik-mean"].argmin()
-    print(
-        f"Params: {params}, Score: {current_score:.5f} at round {current_round}"
-    )
-    if current_score < best_score:
-        best_score = current_score
-        best_params = params.copy()
-        best_num_round = current_round
+print("Meilleurs hyperparamètres :", grid_search.best_params_)
+print("Meilleur score (c-index censuré) :", grid_search.best_score_)
 
-print("\nMeilleurs paramètres trouvés:")
-print(best_params)
-print("Meilleur score (test cox-nloglik):", best_score)
-print("Nombre d'itérations optimal:", best_num_round)
+# Entraîner le meilleur modèle sur l'ensemble d'entraînement
+best_rsf = grid_search.best_estimator_
+best_rsf.fit(X_train, y_train)
 
 #############################################
-# Entraînement final avec les meilleurs hyperparamètres
-#############################################
-watchlist = [(dtrain, "train"), (dtest, "eval")]
-final_model = xgb.train(
-    best_params,
-    dtrain,
-    num_boost_round=best_num_round,
-    evals=watchlist,
-    early_stopping_rounds=50,
-)
-model = final_model
-
-#############################################
-# 5b. Calibration hybride pour estimer la durée de survie
+# 4. Évaluation du modèle RSF
 #############################################
 
-# Utiliser les scores de risque XGBoost comme covariable unique dans un modèle de Cox classique
-risk_scores_train = model.predict(dtrain)
-df_train_cox = pd.DataFrame(
-    {
-        "risk_score": risk_scores_train,
-        "OS_YEARS": y_time_train,
-        "OS_STATUS": y_event_train,
-    }
-)
-cph = CoxPHFitter()
-cph.fit(df_train_cox, duration_col="OS_YEARS", event_col="OS_STATUS")
-cph.print_summary()
+# Prédire des scores de risque pour l'ensemble test
+# Ici, un score plus élevé (après inversion) signifie un risque plus grand
+risk_scores_test = best_rsf.predict(X_test)
+# Calculer le c-index classique
+c_index_classic = concordance_index_censored(
+    y_test["event"], y_test["time"], risk_scores_test
+)[0]
+print("Concordance index classique (RSF) :", c_index_classic)
 
-# Pour l'ensemble test, récupérer les scores de risque
-preds = model.predict(dtest)  # Ceci définit preds
-df_test_cox = pd.DataFrame({"risk_score": preds}, index=X_test.index)
-# Prédire la fonction de survie calibrée pour chaque patient du test
-surv_funcs = cph.predict_survival_function(df_test_cox)
+# Calcul de l'IPCW-C-index (avec tau fixé à 7, à ajuster selon votre contexte)
+c_index_ipcw = concordance_index_ipcw(
+    y_train, y_test, risk_scores_test, tau=7
+)[0]
+print("IPCW-C-index (RSF) :", c_index_ipcw)
+
+#############################################
+# 5. (Optionnel) Prédire des durées de survie
+#############################################
+# Ici, il est plus difficile d'obtenir directement une "durée de survie" à partir d'un RSF.
+# Une approche consiste à estimer pour chaque patient une fonction de survie et en extraire par exemple la médiane.
+# RSF de scikit-survival offre la méthode predict_survival_function.
+surv_funcs = best_rsf.predict_survival_function(X_test)
 
 
 def get_median_survival(s):
-    below_half = s[s <= 0.5]
-    if below_half.empty:
+    # Utilise la propriété "domain" de l'objet StepFunction pour obtenir le minimum et maximum
+    t_min, t_max = s.domain
+    # Créer une grille de temps sur le domaine de s
+    times = np.linspace(t_min, t_max, 1000)
+    surv_values = s(times)
+    below_half = times[surv_values <= 0.5]
+    if below_half.size > 0:
+        return below_half[0]
+    else:
         return np.nan
-    return below_half.index[0]
 
 
-median_survival = surv_funcs.apply(get_median_survival, axis=0)
+median_survival = [get_median_survival(s) for s in surv_funcs]
 df_pred_surv = pd.DataFrame(
     {
-        "ID": IDs_test.values,
+        "ID": IDs_test.values,  # Utilise les véritables IDs du jeu de test
         "predicted_OS_YEARS": median_survival,
     }
 )
 print("Aperçu des prédictions de survie (durée) :")
 print(df_pred_surv.head())
-df_pred_surv.to_csv("predicted_survival_times.csv", index=False)
-
-#############################################
-# 6. Calcul de l'IPCW-C-index
-#############################################
-y_test_struct = Surv.from_arrays(
-    event=y_event_test.astype(bool), time=y_time_test
-)
-y_train_struct = Surv.from_arrays(
-    event=y_event_train.astype(bool), time=y_time_train
-)
-c_index_ipcw = concordance_index_ipcw(
-    y_train_struct, y_test_struct, preds, tau=7
-)[0]
-print("IPCW-C-index :", c_index_ipcw)
