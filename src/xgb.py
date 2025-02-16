@@ -32,7 +32,7 @@ def classify_cytogenetic_risk(cyto_str):
         or ("complex" in s)
     ):
         return "defavorable"
-    # Sinon, c'est plutôt intermédiaire (par exemple un caryotype normal)
+    # Sinon, c'est plutôt intermédiaire (par exemple, caryotype normal)
     return "intermédiaire"
 
 
@@ -92,12 +92,11 @@ clinical_df = pd.concat([clinical_df, features_df], axis=1)
 clinical_df["cyto_risk"] = clinical_df["CYTOGENETICS"].apply(
     classify_cytogenetic_risk
 )
-
+# Créer des variables dummies à partir de la classification
 cyto_risk_dummies = pd.get_dummies(
     clinical_df["cyto_risk"], prefix="cyto_risk"
 )
 clinical_df = pd.concat([clinical_df, cyto_risk_dummies], axis=1)
-
 
 #############################################
 # 2. Agrégation des données moléculaires
@@ -110,11 +109,8 @@ mol_df = pd.read_csv(
 mol_df["ID"] = mol_df["ID"].astype(str)
 
 # Agrégations existantes :
-# a) Nombre total de mutations par patient
 total_mutations = mol_df.groupby("ID").size().rename("total_mutations")
-# b) Moyenne du VAF par patient
 mean_vaf = mol_df.groupby("ID")["VAF"].mean().rename("mean_VAF")
-# c) Nombre de mutations avec effet "stop_gained"
 stop_gained = (
     mol_df[mol_df["EFFECT"] == "stop_gained"]
     .groupby("ID")
@@ -123,22 +119,53 @@ stop_gained = (
 )
 
 # Nouvelles agrégations pour affiner :
-# d) Nombre de mutations avec effet "frameshift_variant"
 frameshift_variant = (
     mol_df[mol_df["EFFECT"].str.contains("frameshift", na=False)]
     .groupby("ID")
     .size()
     .rename("frameshift_variant_count")
 )
-# e) Nombre de mutations avec effet "non_synonymous_codon"
 non_synonymous = (
     mol_df[mol_df["EFFECT"].str.contains("non_synonymous", na=False)]
     .groupby("ID")
     .size()
     .rename("non_synonymous_count")
 )
-# f) Moyenne de la profondeur de séquençage (DEPTH)
 mean_depth = mol_df.groupby("ID")["DEPTH"].mean().rename("mean_depth")
+
+# Agrégation pondérée par VAF pour stop_gained (exemple)
+weighted_stop_gained = (
+    mol_df[mol_df["EFFECT"] == "stop_gained"]
+    .groupby("ID")["VAF"]
+    .sum()
+    .rename("weighted_stop_gained")
+)
+weighted_frameshift = (
+    mol_df[mol_df["EFFECT"].str.contains("frameshift", na=False)]
+    .groupby("ID")["VAF"]
+    .sum()
+    .rename("weighted_frameshift")
+)
+weighted_non_synonymous = (
+    mol_df[mol_df["EFFECT"].str.contains("non_synonymous", na=False)]
+    .groupby("ID")["VAF"]
+    .sum()
+    .rename("weighted_non_synonymous")
+)
+
+# Exemple d'indicateur pour des gènes clés (ici NPM1 et FLT3)
+npm1_mut = (
+    mol_df[mol_df["GENE"].str.upper() == "NPM1"]
+    .groupby("ID")
+    .size()
+    .rename("npm1_mutated")
+)
+flt3_mut = (
+    mol_df[mol_df["GENE"].str.upper() == "FLT3"]
+    .groupby("ID")
+    .size()
+    .rename("flt3_mutated")
+)
 
 # Combiner toutes les agrégations dans un DataFrame
 mol_agg = pd.concat(
@@ -149,10 +176,35 @@ mol_agg = pd.concat(
         frameshift_variant,
         non_synonymous,
         mean_depth,
+        weighted_stop_gained,
+        weighted_frameshift,
+        weighted_non_synonymous,
+        npm1_mut,
+        flt3_mut,
     ],
     axis=1,
 ).reset_index()
-mol_agg.fillna(0, inplace=True)  # Remplacer les NaN par 0
+# Imputer avec la médiane pour les colonnes continues, par exemple
+for col in ["mean_VAF", "mean_depth"]:
+    mol_agg[col] = mol_agg[col].fillna(mol_agg[col].median())
+# Pour les comptes, utiliser la médiane également
+for col in [
+    "total_mutations",
+    "stop_gained_count",
+    "frameshift_variant_count",
+    "non_synonymous_count",
+]:
+    mol_agg[col] = mol_agg[col].fillna(mol_agg[col].median())
+# Pour les indicateurs pondérés, on peut utiliser la médiane ou 0 si la distribution est particulière
+for col in [
+    "weighted_stop_gained",
+    "weighted_frameshift",
+    "weighted_non_synonymous",
+]:
+    mol_agg[col] = mol_agg[col].fillna(mol_agg[col].median())
+# Pour les indicateurs binaires npm1_mutated et flt3_mutated, remplacer NaN par 0
+mol_agg["npm1_mutated"] = mol_agg["npm1_mutated"].fillna(0)
+mol_agg["flt3_mutated"] = mol_agg["flt3_mutated"].fillna(0)
 
 #############################################
 # 3. Fusion des données cliniques, moléculaires et cibles
@@ -212,7 +264,6 @@ merged_df.fillna(
     0, inplace=True
 )  # Pour les patients sans données moléculaires
 
-# Vérification du résultat final
 print("Aperçu du DataFrame fusionné (merged_df) :")
 print(merged_df.head())
 print("Nombre de lignes :", len(merged_df))
@@ -236,26 +287,31 @@ feature_cols = [
     "nb_dup",
     "nb_inv",
     "complex_karyotype",
-    "total_mutations",
-    "mean_VAF",
-    "stop_gained_count",
     "cyto_risk_favorable",
     "cyto_risk_intermédiaire",
     "cyto_risk_defavorable",
-    # Vous pouvez ajouter d'autres features moléculaires si nécessaire
+    "total_mutations",
+    "mean_VAF",
+    "stop_gained_count",
+    "frameshift_variant_count",
+    "non_synonymous_count",
+    "mean_depth",
+    "weighted_stop_gained",
+    "weighted_frameshift",
+    "weighted_non_synonymous",
+    "npm1_mutated",
+    "flt3_mutated",
 ]
 X = merged_df[feature_cols]
-
 IDs = data_for_model["ID"]
 y_time = pd.to_numeric(merged_df["OS_YEARS"], errors="coerce")
 y_event = merged_df["OS_STATUS"]
 
-# Assurez-vous qu'il n'y a pas de NaN dans y_time
+# S'assurer qu'il n'y a pas de NaN dans y_time
 data = merged_df.dropna(subset=["OS_YEARS"])
 X = data[feature_cols]
 y_time = pd.to_numeric(data["OS_YEARS"], errors="coerce")
 y_event = data["OS_STATUS"]
-
 
 # Séparer en train et test en conservant aussi les ID
 (
@@ -269,7 +325,7 @@ y_event = data["OS_STATUS"]
     IDs_test,
 ) = train_test_split(X, y_time, y_event, IDs, test_size=0.2, random_state=42)
 
-# Pour XGBoost, on peut utiliser OS_STATUS comme sample weights (1 pour événement, 0 pour censuré)
+# Pour XGBoost, utiliser OS_STATUS comme sample weights (1 = événement, 0 = censuré)
 w_train = y_event_train
 w_test = y_event_test
 
@@ -288,7 +344,6 @@ param_grid = {
     "subsample": [0.8],
     "colsample_bytree": [0.8],
 }
-
 combinations = list(
     itertools.product(
         param_grid["eta"],
@@ -298,7 +353,6 @@ combinations = list(
         param_grid["colsample_bytree"],
     )
 )
-
 best_score = float("inf")
 best_params = None
 best_num_round = None
@@ -323,7 +377,7 @@ for (
     }
     cv_results = xgb.cv(
         params,
-        dtrain,  # dtrain est défini plus haut
+        dtrain,
         num_boost_round=2500,
         nfold=5,
         early_stopping_rounds=50,
@@ -355,18 +409,14 @@ final_model = xgb.train(
     evals=watchlist,
     early_stopping_rounds=50,
 )
-
 model = final_model
 
 #############################################
 # 5b. Calibration hybride pour estimer la durée de survie
 #############################################
 
-# Utiliser les scores de risque XGBoost comme covariable unique dans un modèle de Cox classique pour calibrer la fonction de survie.
-
-# Récupérer les scores de risque pour l'ensemble d'entraînement
+# Utiliser les scores de risque XGBoost comme covariable unique dans un modèle de Cox classique
 risk_scores_train = model.predict(dtrain)
-
 df_train_cox = pd.DataFrame(
     {
         "risk_score": risk_scores_train,
@@ -374,33 +424,18 @@ df_train_cox = pd.DataFrame(
         "OS_STATUS": y_event_train,
     }
 )
-
-# Ajuster un modèle de Cox avec "risk_score" comme unique covariable
 cph = CoxPHFitter()
 cph.fit(df_train_cox, duration_col="OS_YEARS", event_col="OS_STATUS")
 cph.print_summary()
 
-# Pour l'ensemble test, créer un DataFrame avec le score de risque
-preds = model.predict(
-    dtest
-)  # Ceci calcule les scores de risque pour l'ensemble test
-risk_scores_test = preds  # Vous pouvez utiliser directement preds ou l'appeler risk_scores_test
-
-# Créer le DataFrame pour le modèle de calibration (en utilisant les scores de risque du jeu de test)
-df_test_cox = pd.DataFrame(
-    {"risk_score": risk_scores_test}, index=X_test.index
-)
-df_test_cox = pd.DataFrame(
-    {"risk_score": risk_scores_test}, index=X_test.index
-)
-
-# Prédire la fonction de survie calibrée pour chaque patient du jeu test
+# Pour l'ensemble test, récupérer les scores de risque
+preds = model.predict(dtest)  # Ceci définit preds
+df_test_cox = pd.DataFrame({"risk_score": preds}, index=X_test.index)
+# Prédire la fonction de survie calibrée pour chaque patient du test
 surv_funcs = cph.predict_survival_function(df_test_cox)
 
 
-# Extraire la médiane de survie pour chaque patient
 def get_median_survival(s):
-    # Retourne le premier temps où la probabilité de survie tombe en dessous de 0.5
     below_half = s[s <= 0.5]
     if below_half.empty:
         return np.nan
@@ -408,11 +443,9 @@ def get_median_survival(s):
 
 
 median_survival = surv_funcs.apply(get_median_survival, axis=0)
-
-# Créer un DataFrame de sortie avec ID et la durée de survie prédite (médiane)
 df_pred_surv = pd.DataFrame(
     {
-        "ID": IDs_test.values,  # ici on utilise la colonne ID du jeu de test
+        "ID": IDs_test.values,
         "predicted_OS_YEARS": median_survival,
     }
 )
@@ -423,16 +456,12 @@ df_pred_surv.to_csv("predicted_survival_times.csv", index=False)
 #############################################
 # 6. Calcul de l'IPCW-C-index
 #############################################
-
-# Conversion des labels de test en format structuré pour scikit-survival
 y_test_struct = Surv.from_arrays(
     event=y_event_test.astype(bool), time=y_time_test
 )
 y_train_struct = Surv.from_arrays(
     event=y_event_train.astype(bool), time=y_time_train
 )
-
-# Comme dans votre convention un score élevé indique un risque élevé, on passe preds directement
 c_index_ipcw = concordance_index_ipcw(
     y_train_struct, y_test_struct, preds, tau=7
 )[0]
