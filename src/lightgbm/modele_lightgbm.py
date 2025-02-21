@@ -192,7 +192,7 @@ def classify_gene_risk(gene_str: Any, mutations: List[Set[Any]]) -> float:
     for i in range(len(mutations) - 1, -1, -1):
         if gene_str in mutations[i]:
             return float(i)
-    return np.nan  # Retourne np.nan si aucune mutation ne correspond
+    return 0  # Retourne np.nan si aucune mutation ne correspond
 
 
 def classify_gene_risk_bis(gene_str: Any) -> str:
@@ -232,6 +232,29 @@ def classify_gene_risk_bis(gene_str: Any) -> str:
         return "defavorable"
     # Sinon
     return "intermediaire"
+
+
+def calc_weighted_gene_risk(df: pd.DataFrame, mutations):
+    """
+    Calcule la somme pondérée de gene_risk pour chaque ID dans le DataFrame.
+    """
+    # Calcul de beta pour chaque classe
+    p = 5
+    sum_k_i = sum(k**p for k in range(len(mutations)))  # Total des puissances
+    beta = 5 * np.array([j**p / sum_k_i for j in range(len(mutations))])
+
+    # Calcul de la pondération pour chaque ID
+    weighted_gene_risk = (
+        df.groupby("ID")["gene_risk"]
+        .apply(lambda risks: sum(risk * beta[int(risk)] for risk in risks))
+        .rename("gene_risk_pondere")
+    )
+    return pd.concat(
+        [
+            weighted_gene_risk,
+        ],
+        axis=1,
+    )
 
 
 def create_features_mol_df(df: pd.DataFrame, mutations: List[Set[Any]]) -> pd.DataFrame:
@@ -420,7 +443,7 @@ def pire_meilleure_mutations(
     return pd.concat([meilleure_mutation, pire_mutation, pire_mutation_vaf], axis=1)
 
 
-def extract_all_features_mol(df: pd.DataFrame) -> pd.DataFrame:
+def extract_all_features_mol(df: pd.DataFrame, mutations) -> pd.DataFrame:
     """
     Concatène toutes les features moléculaires extraites en un seul DataFrame.
     """
@@ -432,6 +455,7 @@ def extract_all_features_mol(df: pd.DataFrame) -> pd.DataFrame:
             extract_features_ref(df),
             gene_risk(df),
             pire_meilleure_mutations(df, pire_mutations, meilleures_mutations),
+            calc_weighted_gene_risk(df, mutations),
         ],
         axis=1,
     ).reset_index()
@@ -494,12 +518,15 @@ def merge_df(clin_df: pd.DataFrame, target_df: pd.DataFrame = None) -> pd.DataFr
 
 
 def fusion_df(
-    clin_df: pd.DataFrame, mol_df: pd.DataFrame, target_df: pd.DataFrame = None
+    clin_df: pd.DataFrame,
+    mol_df: pd.DataFrame,
+    mutations,
+    target_df: pd.DataFrame = None,
 ) -> pd.DataFrame:
     """
     Fusionne les données cliniques et les features moléculaires.
     """
-    mol_agg = extract_all_features_mol(mol_df)
+    mol_agg = extract_all_features_mol(mol_df, mutations)
     merged = merge_df(clin_df, target_df=None)
     merged = pd.merge(merged, mol_agg, on="ID", how="left")
     merged.fillna(0, inplace=True)
@@ -571,8 +598,8 @@ def traitement_donnees(
     df_eval_enrichi = create_features_clinical_df(df_eval)
     mol_df_enrichi = create_features_mol_df(mol_df, mutations)
     mol_eval_enrichi = create_features_mol_df(mol_eval, mutations)
-    merged_train = fusion_df(df_train_enrichi, mol_df_enrichi, target_df)
-    merged_test = fusion_df(df_eval_enrichi, mol_eval_enrichi, target_df)
+    merged_train = fusion_df(df_train_enrichi, mol_df_enrichi, mutations, target_df)
+    merged_test = fusion_df(df_eval_enrichi, mol_eval_enrichi, mutations, target_df)
     trad_ris_int(merged_train)
     trad_ris_int(merged_test)
     return merged_train, merged_test
@@ -617,7 +644,6 @@ def modele_survival(
         "flt3_mutated",
         "npm1_mutated",
         "pire_mutations",
-        "gene_risk",
         "dnmt3a_mutated",
         "asxl1_mutated",
         "total_mutations",
@@ -635,6 +661,7 @@ def modele_survival(
         "ddx41_mutated",
         "csnk1a1_mutated",
         "sh2b3_mutated",
+        "gene_risk_pondere",
     ]
     # Préparation de la donnée cible
     target_df = target_df.dropna(subset=["OS_YEARS", "OS_STATUS"])
