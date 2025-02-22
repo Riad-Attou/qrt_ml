@@ -1,8 +1,16 @@
 from database import Database
-from patient import Patient
 
 if __name__ == "__main__":
-    patient = Patient("1000", True, True, 0.5)
+    nb_classes = 25
+    max_depth = 5
+
     db = Database()
     df_train, df_eval, mol_df, mol_eval, target_df = db.load_data()
-    print(len(db.patients))
+    db.extract_mutations(mol_df)
+    db.split_patients_by_os_years(target_df, nb_classes, True)
+    db.classify_mutations(max_depth)
+
+    # print(db.mutations_classes)
+
+    print(db.classify_mutation_tuples(mol_eval, nb_classes))
+    print(len(db.classify_mutation_tuples_with_score(mol_eval, nb_classes)))

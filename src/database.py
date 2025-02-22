@@ -1,4 +1,5 @@
 import itertools
+from collections import Counter
 
 import pandas as pd
 
@@ -10,10 +11,12 @@ class Database:
     def __init__(
         self,
     ):
-        self.patients = []
+        self.patients = []  # Liste de Patient().
+        self.patient_test_combinations = {}
         self.mutations = []
         # Définir autres éléments des .csv.
         self.classes = []  # Classes des patients
+        self.mutations_classes = {}
 
     def split_patients_by_os_years(
         self,
@@ -57,38 +60,57 @@ class Database:
             classes.append(patient_ids[start : start + size])
             start += size
 
+        self.classes = classes
         return classes
 
-    def classify_mutations(self, depth: int):
-        assert depth > 0
-        classes = self.classes
+    def classify_mutations(self, max_depth: int):
+        assert max_depth > 0
 
-        # AJOUTER LE COMPTAGE DU NOMBRE D'OCCURENCE D'UNE COMBINAISON DANS UNE CLASSE
-        # (OU METTRE DES POIDS POUR GERER LE CAS OU CA APPARAIT DANS PLUSIEURS CLASSES)
+        # Créer un mapping patient_id -> classe (numéro de classe)
+        patient_to_class = {}
+        for num_classe, classe in enumerate(self.classes):
+            for patient_id in classe:
+                patient_to_class[patient_id] = num_classe
 
-        # Génération des tuples (permutations) de taille depth
-        combinaisons_tuples = itertools.combinations(self.mutations, depth)
-        combinaisons_listes = [list(combo) for combo in combinaisons_tuples]
+        # Regrouper les mutations par patient
+        mutations_by_patient = {}
+        for mutation in self.mutations:
+            # On suppose que mutation.carrier contient l'ID du patient
+            mutations_by_patient.setdefault(mutation.carrier, []).append(
+                mutation
+            )
 
-        for combi in combinaisons_listes:
-            for num_classe, classe in enumerate(classes):
-                for patient in classe:
-                    is_in_same_patient = True
-                    for mutation in combi:
-                        if mutation.carrier != patient.id:
-                            is_in_same_patient = False
+        for depth in range(max_depth, 0, -1):
+            print(depth)
+            # Pour chaque patient, générer les combinaisons locales
+            for patient_id, patient_mutations in mutations_by_patient.items():
+                # Ne traiter que les patients possédant au moins 'depth' mutations
+                if len(patient_mutations) < depth:
+                    continue
 
-                    # Si on trouve la combinaison, on met à jour les interactions des mutations
-                    if is_in_same_patient:
-                        for mutation in combi:
-                            combi_sans_une_mutation_ids = [
-                                mut.id for mut in combi if mut != mutation
-                            ]
-                            mutation.add_interaction(
-                                combi_sans_une_mutation_ids, num_classe
-                            )
+                # Récupérer la classe du patient
+                num_classe = patient_to_class.get(patient_id)
+                if num_classe is None:
+                    continue  # Le patient n'est pas assigné à une classe
 
-        return
+                # Générer les combinaisons de mutations pour ce patient
+                for combo in itertools.combinations(patient_mutations, depth):
+                    # Pour chaque mutation de la combinaison, ajouter une interaction
+                    combo_id = tuple(sorted([m.id for m in combo]))
+                    if (
+                        combo_id in list(self.mutations_classes.keys())
+                        and self.mutations_classes[combo_id] != num_classe
+                    ):
+                        self.mutations_classes[combo_id].append(num_classe)
+                    else:
+                        self.mutations_classes[combo_id] = [num_classe]
+
+                    for mutation in combo:
+                        # Construire la combinaison privée de cette mutation (liste des IDs des autres mutations)
+                        combo_without = sorted(
+                            [m.id for m in combo if m != mutation]
+                        )
+                        mutation.add_interaction(combo_without, num_classe)
 
     def load_data(self) -> tuple[
         pd.DataFrame,
@@ -135,7 +157,181 @@ class Database:
 
         return df_train, df_eval, mol_df, mol_eval, target_df
 
-    def extract_mutations(self, df: pd.DataFrame) -> list:
+    def classify_mutation_tuples(self, df: pd.DataFrame, max_depth: int):
+        """
+        Pour un DataFrame de mutations, cette fonction :
+        - Extrait les mutations via self.extract_mutations(df, True)
+        - Regroupe les mutations par patient (en se basant sur l'attribut 'carrier')
+        - Pour chaque patient, génère toutes les combinaisons (de taille 'depth')
+            de ses mutations (si le patient possède au moins 'depth' mutations)
+        - Pour chaque combinaison, regarde dans le dictionnaire d'interactions (interactions_dict)
+            la liste de classes associée (la clé est construite à partir des IDs triés)
+        - Pour chaque combinaison présente, on choisit la classe la plus fréquente dans sa liste.
+        - Enfin, pour chaque patient, on regroupe les classes obtenues sur l'ensemble des combinaisons
+            et on choisit la classe la plus fréquente.
+
+        Parameters:
+        - df : DataFrame contenant les mutations
+        - depth : taille des combinaisons à générer
+
+        Returns:
+        Un dictionnaire dont les clés sont les IDs des patients et les valeurs sont la classe prédite
+        (la classe la plus présente parmi les combinaisons de mutations) ou None si aucune combinaison n'est trouvée.
+        """
+        # Extraire les mutations du DataFrame
+        mutations = self.extract_mutations(df, True)
+
+        # Regrouper les mutations par patient
+        mutations_by_patient = {}
+        for mutation in mutations:
+            mutations_by_patient.setdefault(mutation.carrier, []).append(
+                mutation
+            )
+
+        patient_classification = {}
+        for depth in range(max_depth, 0, -1):
+
+            # Pour chaque patient, générer les combinaisons et déterminer la classe
+            for patient_id, patient_mutations in mutations_by_patient.items():
+                if len(patient_mutations) < depth:
+                    # Pas assez de mutations pour générer une combinaison
+                    continue
+
+                if patient_id in list(patient_classification.keys()):
+                    continue
+
+                # Générer les combinaisons de mutations pour ce patient
+                combos = list(itertools.combinations(patient_mutations, depth))
+                classes_for_patient = []
+
+                for combo in combos:
+                    # Construire une clé hashable : un tuple des IDs triés
+                    key = tuple(sorted([mut.id for mut in combo]))
+                    if key in self.mutations_classes:
+                        # Récupérer la liste des classes associées à cette combinaison
+                        classes_list = self.mutations_classes[key]
+                        # Choisir la classe la plus fréquente pour cette combinaison
+                        most_common_class, _ = Counter(
+                            classes_list
+                        ).most_common(1)[0]
+                        classes_for_patient.append(most_common_class)
+
+                if classes_for_patient:
+                    # Pour le patient, on choisit la classe la plus fréquente parmi toutes les combinaisons
+                    overall_class, _ = Counter(
+                        classes_for_patient
+                    ).most_common(1)[0]
+                    patient_classification[patient_id] = classes_for_patient
+                else:
+                    patient_classification[patient_id] = None
+
+        self.patient_test_combinations = patient_classification
+
+        return patient_classification
+
+    def classify_mutation_tuples_with_score(
+        self, df: pd.DataFrame, max_depth: int, k: int = 5
+    ) -> dict:
+        """
+        Pour un DataFrame de mutations, cette fonction :
+        - Extrait les mutations via self.extract_mutations(df, True)
+        - Regroupe les mutations par patient (en se basant sur l'attribut 'carrier')
+        - Pour chaque patient, génère toutes les combinaisons (de taille 'depth')
+            de ses mutations (si le patient possède au moins 'depth' mutations)
+        - Pour chaque combinaison, regarde dans le dictionnaire d'interactions (self.mutations_classes)
+            la liste de classes associée (la clé est construite à partir des IDs triés)
+        - Pour chaque combinaison présente, on choisit la classe la plus fréquente dans sa liste.
+        - Enfin, pour chaque patient, on regroupe les classes obtenues sur l'ensemble des combinaisons
+            et on calcule un score pondéré : somme_{i} (classe_i * beta_i),
+            où beta_i = i^5 / (sum_{j=1}^{nb_classes} j^k).
+
+        Parameters:
+        - df : DataFrame contenant les mutations.
+        - max_depth : profondeur maximale pour générer les combinaisons.
+        - k : exposant pour le calcul du poids (beta), par défaut 5.
+
+        Returns:
+        Un dictionnaire dont les clés sont les IDs des patients et les valeurs sont le score pondéré
+        calculé à partir des classes de leurs combinaisons de mutations, ou None si aucune combinaison n'est trouvée.
+        """
+        # Extraire les mutations du DataFrame
+        mutations = self.extract_mutations(df, True)
+
+        # Regrouper les mutations par patient
+        mutations_by_patient = {}
+        for mutation in mutations:
+            mutations_by_patient.setdefault(mutation.carrier, []).append(
+                mutation
+            )
+
+        patient_classification = {}
+        # Parcourir les profondeurs de max_depth à 1
+        for depth in range(max_depth, 0, -1):
+            # Pour chaque patient, générer les combinaisons et déterminer la classe
+            for patient_id, patient_mutations in mutations_by_patient.items():
+                # Si le patient est déjà classifié via une combinaison de plus grande profondeur, passer
+                if patient_id in patient_classification:
+                    continue
+
+                if len(patient_mutations) < depth:
+                    continue
+
+                # Générer les combinaisons de mutations pour ce patient
+                combos = list(itertools.combinations(patient_mutations, depth))
+                classes_for_patient = []
+
+                for combo in combos:
+                    # Construire une clé hashable : un tuple des IDs triés
+                    key = tuple(sorted([mut.id for mut in combo]))
+                    if key in self.mutations_classes:
+                        # Récupérer la liste des classes associées à cette combinaison
+                        classes_list = self.mutations_classes[key]
+                        # Choisir la classe la plus fréquente pour cette combinaison
+                        most_common_class, _ = Counter(
+                            classes_list
+                        ).most_common(1)[0]
+                        classes_for_patient.append(most_common_class)
+
+                if classes_for_patient:
+                    # Calculer le score pondéré pour ce patient.
+                    nb_classes = len(self.classes)
+                    denom = sum(j**k for j in range(1, nb_classes + 1))
+                    weighted_score = sum(
+                        (cl + 1) * (((cl + 1) ** 5) / denom)
+                        for cl in classes_for_patient
+                    )
+                    patient_classification[patient_id] = weighted_score
+                else:
+                    patient_classification[patient_id] = None
+
+        self.patient_test_combinations = patient_classification
+        return patient_classification
+
+    def classify_new_mutation_tuple(self, mutation_tuple):
+        """
+        Tente d'attribuer une classe à un tuple de mutations d'un nouveau patient (de test).
+
+        Parameters:
+        - mutation_tuple : tuple (ou liste) d'objets Mutation (extraits du nouveau patient)
+        - interactions_dict : dictionnaire issu de vos données d'entraînement,
+        dont les clés sont des tuples (hashables) représentant des combinaisons de mutation
+        (par exemple, les IDs triés des mutations) et les valeurs sont le numéro de classe associé.
+
+        Returns:
+        - Le numéro de classe associé à la combinaison si trouvé, sinon None.
+        """
+        # On construit une clé basée sur les IDs des mutations, triés pour garantir l'unicité
+        key = tuple(sorted([mut.id for mut in mutation_tuple]))
+
+        # Recherche dans le dictionnaire
+        if key in self.mutations_classes:
+            return self.mutations_classes[key]
+        else:
+            return None
+
+    def extract_mutations(
+        self, df: pd.DataFrame, is_test: bool = False
+    ) -> list:
         """
         Extrait des instances de Mutation pour une liste de gènes clés.
         Pour chaque ligne du DataFrame correspondant à un gène clé,
@@ -162,19 +358,26 @@ class Database:
             "CSNK1A1",
             "SH2B3",
         ]
+        if is_test:
+            mutations = []
         # Itérer sur chaque ligne du DataFrame
         for _, row in df.iterrows():
-            # Comparaison en majuscules pour être insensible à la casse
-            if row["GENE"].upper() in genes:
-                mutation = Mutation(
-                    carrier=row["ID"],
-                    gene=row["GENE"],
-                    vaf=row["VAF"],
-                    effect=row["EFFECT"],
-                    # Aajouter d'autres attributs ici, par exemple :
-                    # depth=row["DEPTH"],
-                    # protein_change=row["PROTEIN_CHANGE"],
-                    # etc.
-                )
+            mutation = Mutation(
+                carrier=row["ID"],
+                gene=row["GENE"],
+                vaf=row["VAF"],
+                effect=row["EFFECT"],
+                # Ajouter d'autres attributs ici, par exemple :
+                # depth=row["DEPTH"],
+                # protein_change=row["PROTEIN_CHANGE"],
+                # etc.
+            )
+            if is_test:
+                mutations.append(mutation)
+            else:
                 self.mutations.append(mutation)
-        return self.mutations
+
+        if is_test:
+            return mutations
+        else:
+            return self.mutations

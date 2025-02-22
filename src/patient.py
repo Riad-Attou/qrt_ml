@@ -1,9 +1,15 @@
 class Patient:
     def __init__(
-        self, id: str, is_train: bool, is_dead: bool, survival_time: float
+        self,
+        id: str,
+        is_train: bool,
+        is_dead: bool,
+        survival_time: float,
+        mutations: list = [],
     ):
         self.id = id
-        self.mutations = []
+        self.mutations = mutations
+        self.mutations_combinations = []
         self.is_train = is_train  # Est une donnée d'entrainement (True) ou de test (False).
         # Définir d'autres données depuis les .csv.
         self.is_dead = is_dead  # Gestion de la censure (Vivant: 0 = False, mort: 1 = True).

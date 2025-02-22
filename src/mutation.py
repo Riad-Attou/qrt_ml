@@ -8,17 +8,18 @@ class Mutation:
         self.vaf = vaf
         self.effect = effect
 
-    def add_carriers(self, carrier):
-        self.carriers.append(carrier)
-        return
+        self.id = str(self.gene)  # + "_" + str(self.vaf)
 
-    def add_interaction(self, key: tuple, value: int):
-        if key in self.interactions and self.interactions[key] != value:
-            self.interactions[key].append(value)
+    def add_interaction(self, key: list, value: int):
+        key_tuple = tuple(key)  # Rendre immuable pour l'utiliser comme clé
+        if (
+            key_tuple in list(self.interactions.keys())
+            and self.interactions[key_tuple] != value
+        ):
+            self.interactions[key_tuple].append(value)
         else:
-            self.interactions[key] = [value]
+            self.interactions[key_tuple] = [value]
 
-        self.interactions[key] = value
         return
 
     def __repr__(self):
