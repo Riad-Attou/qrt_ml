@@ -313,19 +313,19 @@ def extract_features_effect(df: pd.DataFrame) -> pd.DataFrame:
     weighted_stop_gained = (
         df[df["EFFECT"] == "stop_gained"]
         .groupby("ID")["VAF"]
-        .sum()
+        .max()
         .rename("weighted_stop_gained")
     )
     weighted_frameshift = (
         df[df["EFFECT"].str.contains("frameshift", na=False)]
         .groupby("ID")["VAF"]
-        .sum()
+        .max()
         .rename("weighted_frameshift")
     )
     weighted_non_synonymous = (
         df[df["EFFECT"].str.contains("non_synonymous", na=False)]
         .groupby("ID")["VAF"]
-        .sum()
+        .max()
         .rename("weighted_non_synonymous")
     )
     stop_gained = (
@@ -414,6 +414,7 @@ def extract_features_gene(df: pd.DataFrame) -> pd.DataFrame:
         "JAK2",
         "CUX1",
         "VEGFA",
+        "MLL",
     ]
     features_gene = []
     for gene in genes:
@@ -734,6 +735,7 @@ def modele_survival(
         "jak2_mutated",
         "cux1_mutated",
         "vegfa_mutated",
+        "mll_mutated",
     ]
     # Préparation de la donnée cible
     target_df = target_df.dropna(subset=["OS_YEARS", "OS_STATUS"])
