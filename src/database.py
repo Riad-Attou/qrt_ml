@@ -1,16 +1,16 @@
 import itertools
 from collections import Counter
 
+import numpy as np
 import pandas as pd
+from scipy.stats import lognorm, weibull_min
 
 from mutation import Mutation
 from patient import Patient
 
 
 class Database:
-    def __init__(
-        self,
-    ):
+    def __init__(self):
         self.patients = []  # Liste de Patient().
         self.patient_test_combinations = {}
         self.mutations = []
@@ -19,6 +19,136 @@ class Database:
         self.mutations_classes = {}
 
     def split_patients_by_os_years(
+        self,
+        df: pd.DataFrame,
+        nb_classes: int,
+        ignore_os_status_zero: bool = True,
+    ) -> list[list[str]]:
+        """
+        Trie les patients selon une transformation non linéaire de leur OS_YEARS basée sur un modèle log-normale,
+        puis divise le résultat en nb_classes classes de taille (presque) égale.
+
+        Processus :
+        1. Filtrer les patients selon OS_STATUS et retirer les valeurs non finies (NaN, inf, -inf) de OS_YEARS.
+        2. Estimer les paramètres du modèle log-normale à partir des OS_YEARS en fixant loc=0.
+        3. Pour chaque patient, calculer la probabilité cumulative via la CDF de lognorm.
+        4. Trier les patients selon cette valeur transformée.
+        5. Répartir les patients triés en nb_classes groupes de taille égale.
+
+        Parameters:
+        - df : DataFrame contenant au moins les colonnes 'ID', 'OS_YEARS' et 'OS_STATUS'
+        - nb_classes : nombre de classes souhaitées
+        - ignore_os_status_zero : si True, ignore les lignes où OS_STATUS vaut 0
+
+        Returns:
+        - Une liste de listes, chaque sous-liste contenant les IDs des patients de la classe correspondante.
+
+        Références :
+        - Documentation SciPy sur lognorm : https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.lognorm.html :contentReference[oaicite:0]{index=0}
+        - Exemple d'analyse de survie avec des modèles log-normaux : https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3908600/ :contentReference[oaicite:1]{index=1}
+        """
+        # Filtrer les lignes avec OS_STATUS == 0 si demandé
+        if ignore_os_status_zero:
+            df = df[df["OS_STATUS"] != 0]
+
+        # Filtrer les valeurs non finies dans OS_YEARS (NaN, inf, -inf)
+        df = df[np.isfinite(df["OS_YEARS"])]
+
+        # Extraire les valeurs de OS_YEARS
+        os_years = df["OS_YEARS"].values
+
+        # Estimer les paramètres du modèle log-normale en fixant loc=0
+        shape, loc, scale = lognorm.fit(os_years, floc=0)
+
+        # Calculer la CDF de lognorm pour chaque patient
+        df = df.copy()  # pour ne pas modifier le DataFrame original
+        df["lognorm_cdf"] = lognorm.cdf(os_years, shape, loc=loc, scale=scale)
+
+        # Trier le DataFrame par la valeur transformée (CDF)
+        df_sorted = df.sort_values(by="lognorm_cdf")
+
+        # Extraire la liste des IDs triée
+        patient_ids = df_sorted["ID"].tolist()
+
+        # Diviser la liste en nb_classes groupes de taille (presque) égale
+        n = len(patient_ids)
+        classes = []
+        base_size = n // nb_classes
+        remainder = n % nb_classes
+        start = 0
+        for i in range(nb_classes):
+            size = base_size + (1 if i < remainder else 0)
+            classes.append(patient_ids[start : start + size])
+            start += size
+
+        self.classes = classes
+        return classes
+
+    def split_patients_by_os_years3(
+        self,
+        df: pd.DataFrame,
+        nb_classes: int,
+        ignore_os_status_zero: bool = True,
+    ) -> list[list[str]]:
+        """
+        Trie les patients selon une transformation non linéaire de leur OS_YEARS basée sur un modèle de Weibull,
+        puis divise le résultat en nb_classes classes de taille (presque) égale.
+
+        On procède de la manière suivante :
+        1. On filtre les patients (si demandé) pour exclure ceux avec OS_STATUS == 0.
+        2. On estime les paramètres du modèle de Weibull à partir des OS_YEARS.
+        3. Pour chaque patient, on calcule la probabilité cumulative via la CDF de Weibull.
+        4. On trie les patients selon cette valeur transformée.
+        5. On répartit les patients triés en nb_classes groupes égaux.
+
+        Parameters:
+        - df : DataFrame contenant au moins les colonnes 'ID', 'OS_YEARS' et 'OS_STATUS'
+        - nb_classes : nombre de classes souhaitées
+        - ignore_os_status_zero : si True, ignore les lignes où OS_STATUS vaut 0
+
+        Returns:
+        - Une liste de listes, chaque sous-liste contenant les IDs des patients de la classe correspondante.
+        """
+        # Filtrer les lignes avec OS_STATUS == 0 si demandé
+        if ignore_os_status_zero:
+            df = df[df["OS_STATUS"] != 0]
+
+        # Filtrer les valeurs non finies dans OS_YEARS (NaN, inf, -inf)
+        df = df[np.isfinite(df["OS_YEARS"])]
+
+        # Extraire les valeurs de OS_YEARS
+        os_years = df["OS_YEARS"].values
+
+        # Estimer les paramètres du modèle de Weibull en fixant loc=0 pour se concentrer sur les temps positifs
+        shape, loc, scale = weibull_min.fit(os_years, floc=0)
+
+        # Calculer la CDF de Weibull pour chaque patient
+        df = df.copy()  # pour éviter de modifier le DataFrame original
+        df["weibull_cdf"] = weibull_min.cdf(
+            os_years, shape, loc=loc, scale=scale
+        )
+
+        # Trier le DataFrame selon la valeur transformée (CDF)
+        df_sorted = df.sort_values(by="weibull_cdf")
+
+        # Extraire la liste des IDs triée
+        patient_ids = df_sorted["ID"].tolist()
+
+        # Diviser la liste en nb_classes classes de taille (presque) égale
+        n = len(patient_ids)
+        classes = []
+        base_size = n // nb_classes
+        remainder = n % nb_classes
+        start = 0
+        for i in range(nb_classes):
+            size = base_size + (1 if i < remainder else 0)
+            classes.append(patient_ids[start : start + size])
+            start += size
+
+        self.classes = classes
+        return classes
+
+    def split_patients_by_os_years2(
         self,
         df: pd.DataFrame,
         nb_classes: int,
@@ -99,10 +229,8 @@ class Database:
                 for combo in itertools.combinations(patient_mutations, depth):
                     # Pour chaque mutation de la combinaison, ajouter une interaction
                     combo_id = tuple(sorted([m.id for m in combo]))
-                    if (
-                        combo_id in list(self.mutations_classes.keys())
-                        and self.mutations_classes[combo_id] != num_classe
-                    ):
+
+                    if combo_id in list(self.mutations_classes.keys()):
                         self.mutations_classes[combo_id].append(num_classe)
                     else:
                         self.mutations_classes[combo_id] = [num_classe]

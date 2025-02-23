@@ -214,7 +214,7 @@ def classify_gene_risk_bis(gene_str: Any) -> str:
             "ASXL1",
             "BCOR",
             "EZH2",
-            "SF3B1",
+            # "SF3B1",
             "RUNX1",
             "SRSF2",
             "STAG2",
@@ -223,7 +223,6 @@ def classify_gene_risk_bis(gene_str: Any) -> str:
             "ABL1",
             "CREBBP",
             "GATA2",
-            "TETA2",
             "DNMT3A",
             "NFE2",
             "DDX41",
@@ -397,7 +396,6 @@ def extract_features_gene(df: pd.DataFrame) -> pd.DataFrame:
         "ASXL1",
         "ZRSR2",
         "SF3B1",
-        "TET2",
         "DNMT3A",
         "BCOR",
         "RUNX1",
@@ -464,42 +462,6 @@ def extract_features_ref(df: pd.DataFrame) -> pd.DataFrame:
     return pd.concat([tca_ref], axis=1)
 
 
-pire_mutations = ["SF3B1", "TP53"]
-meilleures_mutations = ["NPM1"]
-
-
-def pire_meilleure_mutations(
-    df: pd.DataFrame,
-    pires_mutations: List[str],
-    meilleures_mutations: List[str],
-) -> pd.DataFrame:
-    """
-    Calcule plusieurs indicateurs basés sur des mutations considérées comme pires ou meilleures.
-    """
-    pire_mutation = (
-        df[df["GENE"].str.upper().isin(piresh for piresh in pires_mutations)]
-        .groupby("ID")
-        .size()
-        .rename("pire_mutations")
-    )
-    meilleure_mutation = (
-        df[~df["GENE"].str.upper().isin(["FLT3"])]
-        .loc[df["GENE"].str.upper().isin(meilleures_mutations)]
-        .groupby("ID")
-        .size()
-        .rename("meilleure_mutations")
-    )
-    pire_mutation_vaf = (
-        df[df["GENE"].str.upper().isin(piresh for piresh in pires_mutations)]
-        .groupby("ID")["VAF"]
-        .max()
-        .rename("pire_mutation_vaf_max")
-    )
-    return pd.concat(
-        [meilleure_mutation, pire_mutation, pire_mutation_vaf], axis=1
-    )
-
-
 def extract_all_features_mol(df: pd.DataFrame, mutations) -> pd.DataFrame:
     """
     Concatène toutes les features moléculaires extraites en un seul DataFrame.
@@ -511,7 +473,6 @@ def extract_all_features_mol(df: pd.DataFrame, mutations) -> pd.DataFrame:
             extract_features_gene(df),
             extract_features_ref(df),
             gene_risk(df),
-            pire_meilleure_mutations(df, pire_mutations, meilleures_mutations),
             calc_weighted_gene_risk(df, mutations),
         ],
         axis=1,
@@ -600,6 +561,7 @@ def fusion_df(
     merged = merge_df(clin_df, target_df=target_df)
     merged = pd.merge(merged, mol_agg, on="ID", how="left")
     merged.fillna(0, inplace=True)
+
     return merged
 
 
@@ -696,7 +658,6 @@ def modele_survival(
         "min_depth",
         "flt3_mutated",
         "npm1_mutated",
-        "pire_mutations",
         "dnmt3a_mutated",
         "asxl1_mutated",
         "total_mutations",
@@ -717,9 +678,9 @@ def modele_survival(
         "gene_risk_pondere",
         "tp53_mutated",
         "srsf2_mutated",
-        # "u2af1_mutated",
+        "u2af1_mutated",
         "nras_mutated",
-        "gnb1_mutated",
+        # "gnb1_mutated",
         "csf3r_mutated",
         "mpl_mutated",
         "hax1_mutated",
@@ -745,8 +706,7 @@ def modele_survival(
         "phf6_mutated",
         "bcorl1_mutated",
         "jak2_mutated",
-        # "cux1_mutated",
-        "vegfa_mutated",
+        "cux1_mutated",
         "genetic_score",
     ]
     # Préparation de la donnée cible
