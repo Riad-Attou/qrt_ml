@@ -188,7 +188,9 @@ def classify_gene_risk(gene_str: Any, mutations: List[Set[Any]]) -> float:
     Retourne une valeur numérique (l'indice de la classe) ou np.nan si la donnée n'est pas exploitable.
     """
     if not isinstance(gene_str, str):
-        return np.nan  # Utilisation de np.nan pour indiquer une valeur manquante
+        return (
+            np.nan
+        )  # Utilisation de np.nan pour indiquer une valeur manquante
     for i in range(len(mutations) - 1, -1, -1):
         if gene_str in mutations[i]:
             return float(i)
@@ -257,12 +259,16 @@ def calc_weighted_gene_risk(df: pd.DataFrame, mutations):
     )
 
 
-def create_features_mol_df(df: pd.DataFrame, mutations: List[Set[Any]]) -> pd.DataFrame:
+def create_features_mol_df(
+    df: pd.DataFrame, mutations: List[Set[Any]]
+) -> pd.DataFrame:
     """
     Ajoute des colonnes de classification du risque génétique et des variables dummies.
     """
     df = df.copy()
-    df["gene_risk"] = df["GENE"].apply(lambda gene: classify_gene_risk(gene, mutations))
+    df["gene_risk"] = df["GENE"].apply(
+        lambda gene: classify_gene_risk(gene, mutations)
+    )
     df["gene_risk2"] = df["GENE"].apply(classify_gene_risk_bis)
     gene_risk_dummies = pd.get_dummies(df["gene_risk2"], prefix="gene_risk2")
     df = pd.concat([df, gene_risk_dummies], axis=1)
@@ -274,10 +280,14 @@ def gene_risk(df: pd.DataFrame) -> pd.DataFrame:
     Agrège les indicateurs de risque génétique par patient.
     """
     gene_risk_favorable = (
-        df.groupby("ID")["gene_risk2_favorable"].max().rename("gene_risk_favorable")
+        df.groupby("ID")["gene_risk2_favorable"]
+        .max()
+        .rename("gene_risk_favorable")
     )
     gene_risk_defavorable = (
-        df.groupby("ID")["gene_risk2_defavorable"].max().rename("gene_risk_defavorable")
+        df.groupby("ID")["gene_risk2_defavorable"]
+        .max()
+        .rename("gene_risk_defavorable")
     )
     gene_risk_intermediaire = (
         df.groupby("ID")["gene_risk2_intermediaire"]
@@ -383,6 +393,37 @@ def extract_features_gene(df: pd.DataFrame) -> pd.DataFrame:
         "DDX41",
         "CSNK1A1",
         "SH2B3",
+        "SRSF2",
+        "U2AF1",
+        "NRAS",
+        "GNB1",
+        "CSF3R",
+        "MPL",
+        "HAX1",
+        "RIT1",
+        "SMC3",
+        "WT1",
+        "ATM",
+        "CBL",
+        "ETV6",
+        "ETNK1",
+        "KRAS",
+        "ARID2",
+        "PTPN11",
+        "BRCA2",
+        "PDS5B",
+        "IDH2",
+        "NF1",
+        "PPM1D",
+        "CEBPA",
+        "IDH1",
+        "MYD88",
+        "KIT",
+        "PHF6",
+        "BCORL1",
+        "JAK2",
+        "CUX1",
+        "VEGFA",
     ]
     features = []
     for gene in genes:
@@ -440,7 +481,9 @@ def pire_meilleure_mutations(
         .max()
         .rename("pire_mutation_vaf_max")
     )
-    return pd.concat([meilleure_mutation, pire_mutation, pire_mutation_vaf], axis=1)
+    return pd.concat(
+        [meilleure_mutation, pire_mutation, pire_mutation_vaf], axis=1
+    )
 
 
 def extract_all_features_mol(df: pd.DataFrame, mutations) -> pd.DataFrame:
@@ -466,7 +509,9 @@ def extract_all_features_mol(df: pd.DataFrame, mutations) -> pd.DataFrame:
 ###################################################
 
 
-def merge_df(clin_df: pd.DataFrame, target_df: pd.DataFrame = None) -> pd.DataFrame:
+def merge_df(
+    clin_df: pd.DataFrame, target_df: pd.DataFrame = None
+) -> pd.DataFrame:
     """
     Fusionne les données cliniques en conservant uniquement certaines colonnes.
     Si target_df est fourni et que clin_df contient plus de 2000 lignes, effectue une jointure.
@@ -556,7 +601,9 @@ def charger_donnees() -> (
     Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]
 ):
     # Charger les données cliniques
-    df_train = pd.read_csv("databases/X_train/new_df_train.csv", sep=",", quotechar='"')
+    df_train = pd.read_csv(
+        "databases/X_train/new_df_train.csv", sep=",", quotechar='"'
+    )
     df_train["ID"] = df_train["ID"].astype(str)
     df_eval = pd.read_csv("databases/X_test/new_df_test.csv")
     df_eval["ID"] = df_eval["ID"].astype(str)
@@ -574,7 +621,9 @@ def charger_donnees() -> (
     # Charger les données des prédictions
     target_df = pd.read_csv("databases/X_train/target_train.csv")
     target_df = target_df[target_df["ID"].isin(df_train["ID"])]
-    target_df["OS_YEARS"] = pd.to_numeric(target_df["OS_YEARS"], errors="coerce")
+    target_df["OS_YEARS"] = pd.to_numeric(
+        target_df["OS_YEARS"], errors="coerce"
+    )
     target_df["OS_STATUS"] = target_df["OS_STATUS"].astype(bool)
 
     return df_train, df_eval, mol_df, mol_eval, target_df
@@ -598,8 +647,12 @@ def traitement_donnees(
     df_eval_enrichi = create_features_clinical_df(df_eval)
     mol_df_enrichi = create_features_mol_df(mol_df, mutations)
     mol_eval_enrichi = create_features_mol_df(mol_eval, mutations)
-    merged_train = fusion_df(df_train_enrichi, mol_df_enrichi, mutations, target_df)
-    merged_test = fusion_df(df_eval_enrichi, mol_eval_enrichi, mutations, target_df)
+    merged_train = fusion_df(
+        df_train_enrichi, mol_df_enrichi, mutations, target_df
+    )
+    merged_test = fusion_df(
+        df_eval_enrichi, mol_eval_enrichi, mutations, target_df
+    )
     trad_ris_int(merged_train)
     trad_ris_int(merged_test)
     return merged_train, merged_test
@@ -662,6 +715,38 @@ def modele_survival(
         "csnk1a1_mutated",
         "sh2b3_mutated",
         "gene_risk_pondere",
+        "tp53_mutated",
+        "srsf2_mutated",
+        "u2af1_mutated",
+        "nras_mutated",
+        "gnb1_mutated",
+        "csf3r_mutated",
+        "mpl_mutated",
+        "hax1_mutated",
+        "rit1_mutated",
+        "smc3_mutated",
+        "wt1_mutated",
+        "atm_mutated",
+        "cbl_mutated",
+        "etv6_mutated",
+        "etnk1_mutated",
+        "kras_mutated",
+        "arid2_mutated",
+        "ptpn11_mutated",
+        "brca2_mutated",
+        "pds5b_mutated",
+        "idh2_mutated",
+        "nf1_mutated",
+        "ppm1d_mutated",
+        "cebpa_mutated",
+        "idh1_mutated",
+        "myd88_mutated",
+        "kit_mutated",
+        "phf6_mutated",
+        "bcorl1_mutated",
+        "jak2_mutated",
+        "cux1_mutated",
+        "vegfa_mutated",
     ]
     # Préparation de la donnée cible
     target_df = target_df.dropna(subset=["OS_YEARS", "OS_STATUS"])
@@ -693,13 +778,19 @@ def modele_survival(
     df_risk_score.insert(0, "ID", merged_test["ID"])
     df_risk_score.to_csv("pred_test.csv", index=False)
 
-    train_ci_ipcw = concordance_index_ipcw(y_train, y_train, pred_train, tau=7)[0]
+    train_ci_ipcw = concordance_index_ipcw(
+        y_train, y_train, pred_train, tau=7
+    )[0]
     print(
         f"LightGBM Survival Model Concordance Index IPCW on train: {train_ci_ipcw:.8f}"
     )
     if y_test is not None:
-        test_ci_ipcw = concordance_index_ipcw(y_test, y_test, pred_test, tau=7)[0]
-    print(f"LightGBM Survival Model Concordance Index IPCW on test: {test_ci_ipcw:.4f}")
+        test_ci_ipcw = concordance_index_ipcw(
+            y_test, y_test, pred_test, tau=7
+        )[0]
+        print(
+            f"LightGBM Survival Model Concordance Index IPCW on test: {test_ci_ipcw:.4f}"
+        )
     return train_ci_ipcw
 
 
@@ -709,4 +800,4 @@ if __name__ == "__main__":
     merged_train, merged_test = traitement_donnees(
         nbclasses, df_train, df_eval, mol_df, mol_eval, target_df
     )
-    modele_survival(1, merged_train, merged_test, target_df)
+    modele_survival(2, merged_train, merged_test, target_df)
