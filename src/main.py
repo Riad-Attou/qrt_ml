@@ -8,7 +8,7 @@ from clinical_processing import modele_survival, traitement_donnees
 
 
 def plot_scores():
-    nb_classes_range = list(range(20, 100, 1))
+    nb_classes_range = list(range(15, 60, 1))
     max_depth_fixed = 15
 
     train_scores = []
