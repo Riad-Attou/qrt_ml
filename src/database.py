@@ -64,6 +64,9 @@ class Database:
         return classes
 
     def classify_mutations(self, max_depth: int):
+        """
+        Met à jour l'attribut interaction de chaque Mutation de self.mutations.
+        """
         assert max_depth > 0
 
         # Créer un mapping patient_id -> classe (numéro de classe)
@@ -81,7 +84,6 @@ class Database:
             )
 
         for depth in range(max_depth, 0, -1):
-            print(depth)
             # Pour chaque patient, générer les combinaisons locales
             for patient_id, patient_mutations in mutations_by_patient.items():
                 # Ne traiter que les patients possédant au moins 'depth' mutations
@@ -300,7 +302,7 @@ class Database:
                         (cl + 1) * (((cl + 1) ** 5) / denom)
                         for cl in classes_for_patient
                     )
-                    patient_classification[patient_id] = weighted_score
+                    patient_classification[patient_id] = -weighted_score
                 else:
                     patient_classification[patient_id] = None
 
@@ -362,20 +364,21 @@ class Database:
             mutations = []
         # Itérer sur chaque ligne du DataFrame
         for _, row in df.iterrows():
-            mutation = Mutation(
-                carrier=row["ID"],
-                gene=row["GENE"],
-                vaf=row["VAF"],
-                effect=row["EFFECT"],
-                # Ajouter d'autres attributs ici, par exemple :
-                # depth=row["DEPTH"],
-                # protein_change=row["PROTEIN_CHANGE"],
-                # etc.
-            )
-            if is_test:
-                mutations.append(mutation)
-            else:
-                self.mutations.append(mutation)
+            if row["GENE"] in genes:
+                mutation = Mutation(
+                    carrier=row["ID"],
+                    gene=row["GENE"],
+                    vaf=row["VAF"],
+                    effect=row["EFFECT"],
+                    # Ajouter d'autres attributs ici, par exemple :
+                    # depth=row["DEPTH"],
+                    # protein_change=row["PROTEIN_CHANGE"],
+                    # etc.
+                )
+                if is_test:
+                    mutations.append(mutation)
+                else:
+                    self.mutations.append(mutation)
 
         if is_test:
             return mutations
