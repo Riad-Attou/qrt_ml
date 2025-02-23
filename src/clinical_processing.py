@@ -557,6 +557,10 @@ def fusion_df(
         lambda pid: db.patient_test_combinations.get(pid, None)
     )
 
+    mol_agg["cytogene_score"] = mol_agg["ID"].apply(
+        lambda pid: db.cyto_test_combinations.get(pid, None)
+    )
+
     # Fusionner les données cliniques avec les features moléculaires
     merged = merge_df(clin_df, target_df=target_df)
     merged = pd.merge(merged, mol_agg, on="ID", how="left")
@@ -585,18 +589,20 @@ def trad_ris_int(merged_df: pd.DataFrame) -> None:
 
 
 def traitement_donnees(
-    nb_classes: int, max_depth
+    nb_classes: int, max_depth: int, max_depth_cyto: int
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    nb_classes = nb_classes
-    max_depth = max_depth
 
     db = Database()
     df_train, df_test, mol_df, mol_eval, target_df = db.load_data()
+
     db.extract_mutations(mol_df)
     db.split_patients_by_os_years(target_df, nb_classes, True)
     db.classify_mutations(max_depth)
-
     db.classify_mutation_tuples_with_score(mol_df, max_depth)
+
+    db.extract_cytogene(df_train)
+    db.classify_cytogene(max_depth_cyto)
+    db.classify_cytogene_tuples_with_score(df_train, max_depth_cyto)
 
     mutations = classes_mutations(nb_classes, target_df, df_train, mol_df)
 
@@ -607,6 +613,7 @@ def traitement_donnees(
     )
 
     db.classify_mutation_tuples_with_score(mol_eval, max_depth)
+    db.classify_cytogene_tuples_with_score(df_test, max_depth_cyto)
 
     df_eval_enrichi = create_features_clinical_df(df_test)
     mol_eval_enrichi = create_features_mol_df(mol_eval, db, mutations)
@@ -708,6 +715,7 @@ def modele_survival(
         "jak2_mutated",
         "cux1_mutated",
         "genetic_score",
+        "cytogene_score",
     ]
     # Préparation de la donnée cible
     target_df = target_df.dropna(subset=["OS_YEARS", "OS_STATUS"])

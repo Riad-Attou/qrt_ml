@@ -10,15 +10,16 @@ from clinical_processing import modele_survival, traitement_donnees
 def plot_scores():
     nb_classes_range = list(range(15, 60, 1))
     max_depth_fixed = 15
+    max_depth_cyto = 10
 
     train_scores = []
 
     for nb_classes in nb_classes_range:
         print(
-            f"Calcul pour nb_classes = {nb_classes}, max_depth = {max_depth_fixed}"
+            f"\nCalcul pour nb_classes = {nb_classes}, max_depth = {max_depth_fixed}, max_depth_cyto = {max_depth_cyto}"
         )
         merged_train, _, target_df = traitement_donnees(
-            nb_classes, max_depth_fixed
+            nb_classes, max_depth_fixed, max_depth_cyto
         )
         train_ci_ipcw = modele_survival(
             1, merged_train, merged_train, target_df
@@ -38,13 +39,16 @@ def plot_scores():
 
 if __name__ == "__main__":
     # --- Première grille d'exploration sur nb_classes et max_depth ---
-    nb_classes = 56  # 30 pour opti score_train, 56 pour opti score_test
+    nb_classes = 39  # 39 pour opti score_train, 56 pour opti score_test
     max_depth = 15
+    max_depth_cyto = 10
     results = []
 
-    print(f"Exécution pour nb_classes = {nb_classes}, max_depth = {max_depth}")
+    print(
+        f"Exécution pour nb_classes = {nb_classes}, max_depth = {max_depth}, max_depth_cyto = {max_depth_cyto}"
+    )
     merged_train, merged_test, target_df = traitement_donnees(
-        nb_classes, max_depth
+        nb_classes, max_depth, max_depth_cyto
     )
 
     modele_survival(1, merged_train, merged_test, target_df)
