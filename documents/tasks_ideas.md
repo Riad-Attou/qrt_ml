@@ -25,3 +25,4 @@ D'autres facteurs sont à prendre en compte pour déterminer la gravité (relati
     - Le modèle de Cox (Risques Proportionnels de Cox) est une régression semi-paramétrique qui analyse l'impact de chaque variable sur le risque de décès.
 
     - L’ajout d’expertise humaine permet d’améliorer le modèle en intégrant des connaissances médicales sous forme de nouvelles variables. Par exemple, on pourra effectuer des ratios entre certaines variables indiquant si le risque est plus élevé ou plus faible (c'est de l'enrichissement de données).
+#fghgfgh
