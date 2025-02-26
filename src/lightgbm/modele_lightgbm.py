@@ -1,6 +1,7 @@
 import re
 from typing import Any, Dict, List, Set, Tuple
 
+# import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -736,6 +737,7 @@ def modele_survival(
         "cux1_mutated",
         "vegfa_mutated",
         "mll_mutated",
+        "sf3b1_max_vaf",
     ]
     # Préparation de la donnée cible
     target_df = target_df.dropna(subset=["OS_YEARS", "OS_STATUS"])
@@ -780,9 +782,23 @@ def modele_survival(
 
 
 if __name__ == "__main__":
-    nbclasses = 100
+    nbclasses = 85
     df_train, df_eval, mol_df, mol_eval, target_df = charger_donnees()
     merged_train, merged_test = traitement_donnees(
         nbclasses, df_train, df_eval, mol_df, mol_eval, target_df
     )
-    modele_survival(2, merged_train, merged_test, target_df)
+
+    modele_survival(1, merged_train, merged_test, target_df)
+
+    # nbrclasses_list = [i for i in range(5, 150, 5)]
+    # merged_data_list = [
+    #     traitement_donnees(nbclasses, df_train, df_eval, mol_df, mol_eval, target_df)
+    #     for nbclasses in nbrclasses_list
+    # ]
+    # modele_survival_list = [
+    #     modele_survival(2, merged_train, merged_test, target_df)
+    #     for merged_train, merged_test in merged_data_list
+    # ]
+
+    # plt.plot(nbrclasses_list, modele_survival_list)
+    # plt.show()
