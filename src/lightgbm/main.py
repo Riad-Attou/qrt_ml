@@ -3,7 +3,7 @@ import itertools
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from modele_lightgbm import modele_survival, traitement_donnees
+from clinical_processing import modele_survival, traitement_donnees
 
 
 def plot_scores():
