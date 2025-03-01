@@ -6,7 +6,7 @@ class Cytogene:
             {}
         )  # Dictionnaire dont les clés sont des tuples d'autres mutations et la valeur la (ou les) classes du tuple complet (clé + cette mutation).
 
-        self.id = str(self.cytogene)  # + "_" + str(self.vaf)
+        self.id = str(self.cytogene)
 
     def add_interaction(self, key: list, value: int):
         key_tuple = tuple(key)  # Rendre immuable pour l'utiliser comme clé

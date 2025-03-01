@@ -38,8 +38,7 @@ def plot_scores():
 
 
 if __name__ == "__main__":
-    # --- Première grille d'exploration sur nb_classes et max_depth ---
-    nb_classes = 39  # 39 pour opti score_train, 56 pour opti score_test
+    nb_classes = 56  # 39 pour opti score_train, 56 pour opti score_test
     max_depth = 15
     max_depth_cyto = 10
     results = []

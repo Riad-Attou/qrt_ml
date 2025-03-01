@@ -485,50 +485,6 @@ class Database:
         self.cyto_test_combinations = patient_classification
         return patient_classification
 
-    def classify_new_mutation_tuple(self, mutation_tuple):
-        """
-        Tente d'attribuer une classe à un tuple de mutations d'un nouveau patient (de test).
-
-        Parameters:
-        - mutation_tuple : tuple (ou liste) d'objets Mutation (extraits du nouveau patient)
-        - interactions_dict : dictionnaire issu de vos données d'entraînement,
-        dont les clés sont des tuples (hashables) représentant des combinaisons de mutation
-        (par exemple, les IDs triés des mutations) et les valeurs sont le numéro de classe associé.
-
-        Returns:
-        - Le numéro de classe associé à la combinaison si trouvé, sinon None.
-        """
-        # On construit une clé basée sur les IDs des mutations, triés pour garantir l'unicité
-        key = tuple(sorted([mut.id for mut in mutation_tuple]))
-
-        # Recherche dans le dictionnaire
-        if key in self.mutations_classes:
-            return self.mutations_classes[key]
-        else:
-            return None
-
-    def classify_new_mutation_tuple(self, cytogene_tuple):
-        """
-        Tente d'attribuer une classe à un tuple de cytogènes d'un nouveau patient (de test).
-
-        Parameters:
-        - cytogene_tuple : tuple (ou liste) d'objets Cytogene (extraits du nouveau patient)
-        - interactions_dict : dictionnaire issu de vos données d'entraînement,
-        dont les clés sont des tuples (hashables) représentant des combinaisons de mutation
-        (par exemple, les IDs triés des mutations) et les valeurs sont le numéro de classe associé.
-
-        Returns:
-        - Le numéro de classe associé à la combinaison si trouvé, sinon None.
-        """
-        # On construit une clé basée sur les IDs des mutations, triés pour garantir l'unicité
-        key = tuple(sorted([cyt.id for cyt in cytogene_tuple]))
-
-        # Recherche dans le dictionnaire
-        if key in self.cytogene_classes:
-            return self.cytogene_classes[key]
-        else:
-            return None
-
     def extract_mutations(
         self, df: pd.DataFrame, is_test: bool = False
     ) -> list:
