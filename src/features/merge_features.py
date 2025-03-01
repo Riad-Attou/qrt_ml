@@ -1,7 +1,6 @@
 import pandas as pd
-from molecular_features import extract_all_features_mol
 
-from database import Database
+from features.molecular_features import extract_all_features_mol
 
 
 def merge_df(
@@ -60,7 +59,7 @@ def merge_df(
 def fusion_df(
     clin_df: pd.DataFrame,
     mol_df: pd.DataFrame,
-    db: Database,
+    db,  # Peut être None dans le nouveau pipeline
     mutations,
     target_df: pd.DataFrame = None,
 ) -> pd.DataFrame:
@@ -68,20 +67,23 @@ def fusion_df(
     Fusionne les données cliniques et les features moléculaires.
 
     Ici, on réutilise le DataFrame complété par create_features_mol_df qui contient déjà
-    la colonne 'genetic_score' ainsi que les autres features (gene_risk, gene_risk2, etc.).
+    des features moléculaires. Si un objet db est fourni, on utilise ses attributs pour ajouter
+    des scores ; sinon, on assigne des valeurs par défaut (par exemple, None).
     """
     mol_agg = extract_all_features_mol(mol_df, mutations)
 
-    # Ajout de la colonne 'genetic_score' en récupérant le score pour chaque patient
-    mol_agg["genetic_score"] = mol_agg["ID"].apply(
-        lambda pid: db.patient_test_combinations.get(pid, None)
-    )
+    # Si db est fourni, utiliser ses scores, sinon définir des valeurs par défaut
+    if db is not None:
+        mol_agg["genetic_score"] = mol_agg["ID"].apply(
+            lambda pid: db.patient_test_combinations.get(pid, None)
+        )
+        mol_agg["cytogene_score"] = mol_agg["ID"].apply(
+            lambda pid: db.cyto_test_combinations.get(pid, None)
+        )
+    else:
+        mol_agg["genetic_score"] = None
+        mol_agg["cytogene_score"] = None
 
-    mol_agg["cytogene_score"] = mol_agg["ID"].apply(
-        lambda pid: db.cyto_test_combinations.get(pid, None)
-    )
-
-    # Fusionner les données cliniques avec les features moléculaires
     merged = merge_df(clin_df, target_df=target_df)
     merged = pd.merge(merged, mol_agg, on="ID", how="left")
     merged.fillna(0, inplace=True)

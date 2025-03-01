@@ -38,9 +38,6 @@ class LightGBMModel:
         X_valid: pd.DataFrame = None,
         y_valid: np.array = None,
     ):
-        """
-        Entraîne le modèle sur les données d'entraînement, avec option de validation.
-        """
         train_data = lgb.Dataset(X_train, label=y_train)
         valid_sets = [train_data]
         valid_names = ["train"]
@@ -56,8 +53,6 @@ class LightGBMModel:
             num_boost_round=self.num_boost_round,
             valid_sets=valid_sets,
             valid_names=valid_names,
-            early_stopping_rounds=self.early_stopping_rounds,
-            verbose_eval=self.verbose_eval,
         )
         return self.model
 

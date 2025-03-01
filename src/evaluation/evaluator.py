@@ -1,3 +1,5 @@
+# src/evaluation/evaluator.py
+
 import numpy as np
 import pandas as pd
 from sksurv.metrics import concordance_index_ipcw
@@ -7,37 +9,64 @@ from sksurv.util import Surv
 class Evaluator:
     def __init__(self, tau: float = 7.0):
         """
-        Initialise l'évaluateur avec une valeur tau, par exemple pour tronquer le suivi à 7 ans.
+        Initialise l'évaluateur avec une valeur tau (par défaut 7 ans).
         """
         self.tau = tau
 
-    def prepare_survival_data(self, y: pd.DataFrame) -> np.array:
+    def evaluate(self, y_true, predictions: np.array) -> float:
         """
-        Transforme un DataFrame contenant 'OS_STATUS' (booléen) et 'OS_YEARS' en un tableau structuré.
-        """
-        # On utilise Surv.from_dataframe pour créer la structure attendue
-        survival_data = Surv.from_dataframe("OS_STATUS", "OS_YEARS", y)
-        return survival_data
-
-    def evaluate(self, y_true: pd.DataFrame, predictions: np.array) -> float:
-        """
-        Calcule le IPCW-C-index pour évaluer l'ordre des prédictions en fonction des temps de survie réels.
+        Calcule l'IPCW-C-index pour un ensemble de données.
 
         Parameters:
-          - y_true : DataFrame contenant 'OS_STATUS' et 'OS_YEARS'.
-          - predictions : Array des scores de risque prédits par le modèle.
+            y_true: soit un DataFrame contenant 'OS_STATUS' et 'OS_YEARS',
+                    soit un tableau structuré déjà obtenu via Surv.from_dataframe.
+            predictions (np.array): Tableau des scores de risque prédits.
 
         Returns:
-          - Le IPCW-C-index (valeur entre 0 et 1).
+            float: L'IPCW-C-index.
         """
-        # Préparer les données de survie
-        survival_data = self.prepare_survival_data(y_true)
+        if isinstance(y_true, pd.DataFrame):
+            y_true = y_true.dropna(subset=["OS_YEARS", "OS_STATUS"])
+            survival_data = Surv.from_dataframe(
+                "OS_STATUS", "OS_YEARS", y_true
+            )
+        else:
+            survival_data = y_true
 
-        # Pour calculer le IPCW-C-index, on passe les données de survie deux fois (une fois pour les temps de suivi)
         c_index, _ = concordance_index_ipcw(
-            training_survival_data=survival_data,  # dans un contexte réel, ce pourrait être le jeu d'entraînement
-            test_survival_data=survival_data,  # ici, on évalue sur le même ensemble pour l'exemple
-            estimate=predictions,
-            tau=self.tau,
+            survival_data, survival_data, predictions, self.tau
         )
         return c_index
+
+    def evaluate_both(
+        self, y_train, pred_train: np.array, y_test, pred_test: np.array
+    ) -> tuple:
+        # Traitement de y_train
+        if isinstance(y_train, pd.DataFrame):
+            y_train = y_train.dropna(subset=["OS_YEARS", "OS_STATUS"])
+            surv_train = Surv.from_dataframe("OS_STATUS", "OS_YEARS", y_train)
+        else:
+            surv_train = y_train
+            if np.any(np.isnan(surv_train["OS_YEARS"])) or np.any(
+                np.isnan(surv_train["OS_STATUS"])
+            ):
+                raise ValueError("Surv object for training contains NaN")
+
+        # Traitement de y_test
+        if isinstance(y_test, pd.DataFrame):
+            y_test = y_test.dropna(subset=["OS_YEARS", "OS_STATUS"])
+            surv_test = Surv.from_dataframe("OS_STATUS", "OS_YEARS", y_test)
+        else:
+            surv_test = y_test
+            if np.any(np.isnan(surv_test["OS_YEARS"])) or np.any(
+                np.isnan(surv_test["OS_STATUS"])
+            ):
+                raise ValueError("Surv object for test contains NaN")
+
+        train_cindex = concordance_index_ipcw(
+            surv_train, surv_train, pred_train, self.tau
+        )[0]
+        test_cindex = concordance_index_ipcw(
+            surv_test, surv_test, pred_test, self.tau
+        )[0]
+        return train_cindex, test_cindex
