@@ -24,188 +24,20 @@ def aggregate_molecular_features(molecular_train):
     print("\nValeurs manquantes après remplacement :")
     print(molecular_data.isnull().sum())
 
-    # 1. Nombre total de mutations par patient
+    # Nombre total de mutations par patient (caractéristique principale du benchmark)
     mutation_count = (
         molecular_data.groupby("ID").size().reset_index(name="NUM_MUTATIONS")
     )
 
-    # 2. Nombre de gènes affectés par patient
-    unique_genes_per_patient = (
-        molecular_data.groupby("ID")["GENE"]
-        .nunique()
-        .reset_index(name="NUM_GENES_AFFECTED")
-    )
+    # Renommer pour être cohérent avec le benchmark
+    mutation_count = mutation_count.rename(columns={"NUM_MUTATIONS": "Nmut"})
 
-    # 3. Mutation ayant le plus grand VAF par patient
-    # S'assurer qu'il y a des données valides avant de chercher un maximum
-    molecular_data_with_vaf = molecular_data[molecular_data["VAF"] > 0]
-
-    if not molecular_data_with_vaf.empty:
-        top_mutation = molecular_data_with_vaf.loc[
-            molecular_data_with_vaf.groupby("ID")["VAF"].idxmax(),
-            ["ID", "GENE", "VAF"],
-        ]
-        top_mutation.rename(
-            columns={"GENE": "TOP_MUTATED_GENE", "VAF": "TOP_MUTATION_VAF"},
-            inplace=True,
-        )
-    else:
-        # Créer un DataFrame vide avec les bonnes colonnes si pas de données VAF
-        top_mutation = pd.DataFrame(
-            columns=["ID", "TOP_MUTATED_GENE", "TOP_MUTATION_VAF"]
-        )
-
-    # 4. Moyenne des VAF par patient (indicateur de la charge mutationnelle)
-    avg_vaf = (
-        molecular_data.groupby("ID")["VAF"].mean().reset_index(name="AVG_VAF")
-    )
-
-    # 5. Écart-type des VAF par patient (hétérogénéité clonale)
-    std_vaf = (
-        molecular_data.groupby("ID")["VAF"].std().reset_index(name="STD_VAF")
-    )
-    # Remplacer NaN par 0 dans std_vaf (si un patient n'a qu'une mutation)
-    std_vaf["STD_VAF"] = std_vaf["STD_VAF"].fillna(0)
-
-    # 6. Nombre de chromosomes différents affectés
-    chromosomes_affected = (
-        molecular_data.groupby("ID")["CHR"]
-        .nunique()
-        .reset_index(name="NUM_CHROMOSOMES_AFFECTED")
-    )
-
-    # 7. Nombre de mutations par effet (fonctionnel, silencieux, etc.)
-    # Identifier les mutations fonctionnelles importantes
-    molecular_data["IS_FUNCTIONAL"] = (
-        molecular_data["EFFECT"]
-        .isin(["missense", "frameshift", "nonsense", "splice_site"])
-        .astype(int)
-    )
-
-    functional_mutations = (
-        molecular_data.groupby("ID")["IS_FUNCTIONAL"]
-        .sum()
-        .reset_index(name="NUM_FUNCTIONAL_MUTATIONS")
-    )
-
-    # 8. Gènes récurrents - vérifier la présence de mutations dans des gènes spécifiques importants pour la leucémie
-    important_genes = [
-        "TP53",
-        "FLT3",
-        "NPM1",
-        "DNMT3A",
-        "IDH1",
-        "IDH2",
-        "RUNX1",
-        "ASXL1",
-        "TET2",
-    ]
-    gene_features = pd.DataFrame({"ID": mutation_count["ID"]})
-
-    for gene in important_genes:
-        # Pour chaque ID, vérifier si le gène est muté
-        gene_data = (
-            molecular_data[molecular_data["GENE"] == gene]
-            .groupby("ID")
-            .size()
-            .reset_index(name=f"HAS_{gene}")
-        )
-        gene_data[f"HAS_{gene}"] = 1  # Marquer comme présent
-        gene_features = gene_features.merge(gene_data, on="ID", how="left")
-        gene_features[f"HAS_{gene}"] = (
-            gene_features[f"HAS_{gene}"].fillna(0).astype(int)
-        )
-
-    # 9. Calculer le ratio de mutations fonctionnelles
-    functional_ratio = pd.merge(
-        functional_mutations, mutation_count, on="ID", how="right"
-    )
-    functional_ratio["FUNCTIONAL_RATIO"] = (
-        functional_ratio["NUM_FUNCTIONAL_MUTATIONS"]
-        / functional_ratio["NUM_MUTATIONS"]
-    )
-    functional_ratio["FUNCTIONAL_RATIO"] = functional_ratio[
-        "FUNCTIONAL_RATIO"
-    ].fillna(0)
-    functional_ratio = functional_ratio[["ID", "FUNCTIONAL_RATIO"]]
-
-    # Combiner toutes les caractéristiques - commencer par mutation_count
+    # On ne garde que cette caractéristique clé pour suivre le benchmark
     molecular_features = mutation_count.copy()
-
-    # Liste des DataFrames à fusionner
-    feature_dfs = [
-        unique_genes_per_patient,
-        top_mutation,
-        avg_vaf,
-        std_vaf,
-        chromosomes_affected,
-        functional_mutations,
-        gene_features,
-        functional_ratio,
-    ]
-
-    # Effectuer les fusions de manière sécurisée
-    for df in feature_dfs:
-        if not df.empty and "ID" in df.columns:
-            molecular_features = molecular_features.merge(
-                df, on="ID", how="left"
-            )
-
-    # S'assurer qu'il n'y a pas de valeurs manquantes
-    molecular_features = molecular_features.fillna(
-        {
-            "NUM_MUTATIONS": 0,
-            "NUM_GENES_AFFECTED": 0,
-            "TOP_MUTATION_VAF": 0,
-            "TOP_MUTATED_GENE": "NONE",
-            "AVG_VAF": 0,
-            "STD_VAF": 0,
-            "NUM_CHROMOSOMES_AFFECTED": 0,
-            "NUM_FUNCTIONAL_MUTATIONS": 0,
-            "FUNCTIONAL_RATIO": 0,
-        }
-    )
-
-    # Pour les colonnes des gènes importants, remplacer NaN par 0
-    for gene in important_genes:
-        col_name = f"HAS_{gene}"
-        if col_name in molecular_features.columns:
-            molecular_features[col_name] = (
-                molecular_features[col_name].fillna(0).astype(int)
-            )
 
     print(
         f"Features moléculaires créées: {molecular_features.shape[0]} patients, {molecular_features.shape[1]} caractéristiques"
     )
-    print(f"Top features moléculaires par importance:")
-
-    # Affichage des caractéristiques de manière sécurisée
-    for col in molecular_features.columns:
-        if col == "ID":
-            continue
-
-        # Traitement spécifique par type de colonne
-        if col == "TOP_MUTATED_GENE":
-            if "TOP_MUTATED_GENE" in molecular_features.columns:
-                non_empty = (molecular_features[col] != "NONE").sum()
-                print(
-                    f"- {col}: {non_empty} patients ({non_empty/molecular_features.shape[0]*100:.1f}%)"
-                )
-        elif (
-            col.startswith("HAS_")
-            or "NUM_" in col
-            or col.endswith("_VAF")
-            or col.endswith("_RATIO")
-        ):
-            if col in molecular_features.columns and molecular_features[
-                col
-            ].dtype in [np.float64, np.int64, np.float32, np.int32, np.bool_]:
-                non_zero = (molecular_features[col] > 0).sum()
-                print(
-                    f"- {col}: {non_zero} patients ({non_zero/molecular_features.shape[0]*100:.1f}%)"
-                )
-        # Pour les autres types de colonnes, pas d'affichage
-
     return molecular_features
 
 
