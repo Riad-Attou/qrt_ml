@@ -4,436 +4,321 @@ import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from sklearn.model_selection import KFold, StratifiedKFold
+from sksurv.ensemble import RandomSurvivalForest
 from sksurv.linear_model import CoxPHSurvivalAnalysis
-from sksurv.metrics import concordance_index_censored
+from sksurv.metrics import concordance_index_censored, concordance_index_ipcw
 
-# Créer les répertoires s'ils n'existent pas
-os.makedirs("models", exist_ok=True)
-os.makedirs("submissions", exist_ok=True)
-
-print("Chargement des données...")
-# Charger les données
-X_train = pd.read_csv("data/processed/X_train_prepared.csv", index_col=0)
-y_train = pd.read_csv("data/processed/y_train_prepared.csv", index_col=0)
-X_val = pd.read_csv("data/processed/X_val_prepared.csv", index_col=0)
-y_val = pd.read_csv("data/processed/y_val_prepared.csv", index_col=0)
-X_test = pd.read_csv("data/processed/X_test_prepared.csv", index_col=0)
-
-print(
-    f"Dimensions des données - X_train: {X_train.shape}, y_train: {y_train.shape}"
-)
-print(f"X_val: {X_val.shape}, y_val: {y_val.shape}, X_test: {X_test.shape}")
-
-# Vérification des valeurs manquantes
-print(f"Valeurs manquantes dans X_train: {X_train.isnull().sum().sum()}")
-print(f"Valeurs manquantes dans y_train: {y_train.isnull().sum().sum()}")
-print(f"Valeurs manquantes dans X_val: {X_val.isnull().sum().sum()}")
-print(f"Valeurs manquantes dans y_val: {y_val.isnull().sum().sum()}")
-
-# Supprimer les lignes avec des valeurs manquantes
-y_train = y_train.dropna()
-y_val = y_val.dropna()
-
-# S'assurer que les indices sont communs entre X et y
-common_index_train = X_train.index.intersection(y_train.index)
-common_index_val = X_val.index.intersection(y_val.index)
-
-X_train = X_train.loc[common_index_train]
-y_train = y_train.loc[common_index_train]
-X_val = X_val.loc[common_index_val]
-y_val = y_val.loc[common_index_val]
-
-print(
-    f"Après filtrage des valeurs manquantes - X_train: {X_train.shape}, y_train: {y_train.shape}"
-)
-print(f"X_val: {X_val.shape}, y_val: {y_val.shape}")
-
-# Transformer y en format compatible avec scikit-survival
-y_train_survival = np.array(
-    [
-        (bool(status), time)
-        for status, time in zip(y_train["OS_STATUS"], y_train["OS_YEARS"])
-    ],
-    dtype=[("event", bool), ("time", float)],
-)
-
-y_val_survival = np.array(
-    [
-        (bool(status), time)
-        for status, time in zip(y_val["OS_STATUS"], y_val["OS_YEARS"])
-    ],
-    dtype=[("event", bool), ("time", float)],
-)
-
-# Initialiser et entraîner le modèle de Cox avec régularisation
-print("Entraînement du modèle de Cox avec régularisation...")
-cox_model = CoxPHSurvivalAnalysis(
-    alpha=1.0
-)  # Forte régularisation L2 pour éviter les problèmes numériques
-print(f"Dimensions de X_train : {X_train.shape}")
-print(f"Dimensions de y_train_survival : {y_train_survival.shape}")
-
-# Vérifier la présence de multicolinéarité
-print("\nVérification de la multicolinéarité...")
-correlation_matrix = X_train.corr().abs()
-upper_tri = correlation_matrix.where(
-    np.triu(np.ones(correlation_matrix.shape), k=1).astype(bool)
-)
-high_correlation = [
-    column for column in upper_tri.columns if any(upper_tri[column] > 0.95)
-]
-print(f"Caractéristiques hautement corrélées (r > 0.95): {high_correlation}")
-
-if high_correlation:
-    print(f"Suppression des caractéristiques hautement corrélées...")
-    X_train = X_train.drop(columns=high_correlation)
-    X_val = X_val.drop(columns=high_correlation)
-    X_test = X_test.drop(columns=high_correlation)
-    print(f"Nouvelles dimensions - X_train: {X_train.shape}")
-
-# Vérifier les valeurs extrêmes
-print("\nVérification des valeurs extrêmes...")
-for col in X_train.columns:
-    q1 = X_train[col].quantile(0.01)
-    q3 = X_train[col].quantile(0.99)
-    iqr = q3 - q1
-    lower_bound = q1 - 1.5 * iqr
-    upper_bound = q3 + 1.5 * iqr
-
-    # Limiter les valeurs extrêmes
-    X_train[col] = X_train[col].clip(lower_bound, upper_bound)
-    X_val[col] = X_val[col].clip(lower_bound, upper_bound)
-    X_test[col] = X_test[col].clip(lower_bound, upper_bound)
-
-# Réduire le nombre de caractéristiques si nécessaire
-if X_train.shape[1] > 10:  # Si plus de 10 caractéristiques
-    print("\nRéduction du nombre de caractéristiques...")
-    # Garder les caractéristiques du benchmark si elles existent
-    benchmark_features = ["BM_BLAST", "HB", "PLT", "Nmut"]
-    # Filtrer pour ne garder que les caractéristiques disponibles
-    available_benchmark_features = [
-        f for f in benchmark_features if f in X_train.columns
-    ]
-
-    # Si moins de 4 caractéristiques du benchmark sont disponibles, sélectionner les plus importantes
-    if len(available_benchmark_features) < 4:
-        print(
-            f"Caractéristiques du benchmark disponibles: {available_benchmark_features}"
-        )
-        print("Sélection des caractéristiques les plus importantes...")
-
-        # Ajuster un modèle avec une forte régularisation pour sélectionner les caractéristiques
-        temp_model = CoxPHSurvivalAnalysis(alpha=10.0)
-        temp_model.fit(X_train, y_train_survival)
-
-        # Créer un DataFrame avec les coefficients et leur importance
-        coefs = pd.DataFrame(
-            {"feature": X_train.columns, "importance": abs(temp_model.coef_)}
-        ).sort_values("importance", ascending=False)
-
-        # Sélectionner les 4 caractéristiques les plus importantes
-        top_features = coefs.head(4)["feature"].tolist()
-        print(f"Caractéristiques les plus importantes: {top_features}")
-
-        # Combiner avec les caractéristiques du benchmark
-        selected_features = list(
-            set(available_benchmark_features + top_features)
-        )[:4]
-    else:
-        selected_features = available_benchmark_features
-
-    print(f"Caractéristiques finales sélectionnées: {selected_features}")
-    X_train = X_train[selected_features]
-    X_val = X_val[selected_features]
-    X_test = X_test[selected_features]
-
-# Réentraîner le modèle avec les caractéristiques sélectionnées
-cox_model = CoxPHSurvivalAnalysis(alpha=1.0)
-cox_model.fit(X_train, y_train_survival)
-
-# Évaluer le modèle sur l'ensemble de validation
-risk_scores_val = cox_model.predict(X_val)
-c_index_val = concordance_index_censored(
-    y_val["OS_STATUS"].astype(bool), y_val["OS_YEARS"], risk_scores_val
-)[0]
-print(f"📊 C-index du modèle de Cox sur validation : {c_index_val:.4f}")
-
-# Examiner les coefficients pour comprendre l'importance des caractéristiques
-coef_df = pd.DataFrame(
-    {"Feature": X_train.columns, "Coefficient": cox_model.coef_}
-)
-coef_df["Abs_Coefficient"] = abs(coef_df["Coefficient"])
-coef_df = coef_df.sort_values("Abs_Coefficient", ascending=False)
-
-print("\nCoefficients du modèle Cox (importance des variables) :")
-for i, row in coef_df.iterrows():
-    print(f"- {row['Feature']}: {row['Coefficient']:.4f}")
-
-# Sauvegarder le modèle
-joblib.dump(cox_model, "models/cox_model.pkl")
-print("✅ Modèle de Cox sauvegardé !")
-
-# Prédictions sur les données de test (risque)
-risk_scores_test = cox_model.predict(X_test)
-
-# Créer le fichier de soumission au format attendu
-submission = pd.DataFrame({"ID": X_test.index, "risk_score": risk_scores_test})
-submission.to_csv("submissions/cox_submission.csv", index=False)
-
-print("✅ Fichier de soumission généré : submissions/cox_submission.csv")
-
-# Statistiques des scores de risque
-print("\nStatistiques des scores de risque sur le jeu de test:")
-print(f"Min: {risk_scores_test.min():.4f}, Max: {risk_scores_test.max():.4f}")
-print(
-    f"Moyenne: {risk_scores_test.mean():.4f}, Médiane: {np.median(risk_scores_test):.4f}"
-)
-print(f"Écart-type: {risk_scores_test.std():.4f}")
-
-print("🎉 Analyse de survie terminée avec succès !")
-os.makedirs("models", exist_ok=True)
-os.makedirs("submissions", exist_ok=True)
-
-print("Chargement des données...")
-# Charger les données
-X_train = pd.read_csv("data/processed/X_train_prepared.csv", index_col=0)
-y_train = pd.read_csv("data/processed/y_train_prepared.csv", index_col=0)
-X_val = pd.read_csv("data/processed/X_val_prepared.csv", index_col=0)
-y_val = pd.read_csv("data/processed/y_val_prepared.csv", index_col=0)
-X_test = pd.read_csv("data/processed/X_test_prepared.csv", index_col=0)
-
-print(
-    f"Dimensions des données - X_train: {X_train.shape}, y_train: {y_train.shape}"
-)
-print(f"X_val: {X_val.shape}, y_val: {y_val.shape}, X_test: {X_test.shape}")
-
-# Vérification des valeurs manquantes
-print(f"Valeurs manquantes dans X_train: {X_train.isnull().sum().sum()}")
-print(f"Valeurs manquantes dans y_train: {y_train.isnull().sum().sum()}")
-print(f"Valeurs manquantes dans X_val: {X_val.isnull().sum().sum()}")
-print(f"Valeurs manquantes dans y_val: {y_val.isnull().sum().sum()}")
-
-# Supprimer les lignes avec des valeurs manquantes
-y_train = y_train.dropna()
-y_val = y_val.dropna()
-
-# S'assurer que les indices sont communs entre X et y
-common_index_train = X_train.index.intersection(y_train.index)
-common_index_val = X_val.index.intersection(y_val.index)
-
-X_train = X_train.loc[common_index_train]
-y_train = y_train.loc[common_index_train]
-X_val = X_val.loc[common_index_val]
-y_val = y_val.loc[common_index_val]
-
-print(
-    f"Après filtrage des valeurs manquantes - X_train: {X_train.shape}, y_train: {y_train.shape}"
-)
-print(f"X_val: {X_val.shape}, y_val: {y_val.shape}")
-
-# Transformer y en format compatible avec scikit-survival
-y_train_survival = np.array(
-    [
-        (bool(status), time)
-        for status, time in zip(y_train["OS_STATUS"], y_train["OS_YEARS"])
-    ],
-    dtype=[("event", bool), ("time", float)],
-)
-
-y_val_survival = np.array(
-    [
-        (bool(status), time)
-        for status, time in zip(y_val["OS_STATUS"], y_val["OS_YEARS"])
-    ],
-    dtype=[("event", bool), ("time", float)],
-)
-
-# Initialiser et entraîner le modèle de Cox sans régularisation (comme dans le benchmark)
-print("Entraînement du modèle de Cox...")
-cox_model = CoxPHSurvivalAnalysis()
-print(f"Dimensions de X_train : {X_train.shape}")
-print(f"Dimensions de y_train_survival : {y_train_survival.shape}")
-
-cox_model.fit(X_train, y_train_survival)
-
-# Évaluer le modèle sur l'ensemble de validation
-risk_scores_val = cox_model.predict(X_val)
-c_index_val = concordance_index_censored(
-    y_val["OS_STATUS"].astype(bool), y_val["OS_YEARS"], risk_scores_val
-)[0]
-print(f"📊 C-index du modèle de Cox sur validation : {c_index_val:.4f}")
-
-# Examiner les coefficients pour comprendre l'importance des caractéristiques
-coef_df = pd.DataFrame(
-    {"Feature": X_train.columns, "Coefficient": cox_model.coef_}
-)
-coef_df["Abs_Coefficient"] = abs(coef_df["Coefficient"])
-coef_df = coef_df.sort_values("Abs_Coefficient", ascending=False)
-
-print("\nCoefficients du modèle Cox (importance des variables) :")
-for i, row in coef_df.iterrows():
-    print(f"- {row['Feature']}: {row['Coefficient']:.4f}")
-
-# Sauvegarder le modèle
-joblib.dump(cox_model, "models/cox_model.pkl")
-print("✅ Modèle de Cox sauvegardé !")
-
-# Prédictions sur les données de test (risque)
-risk_scores_test = cox_model.predict(X_test)
-
-# Créer le fichier de soumission au format attendu
-submission = pd.DataFrame({"ID": X_test.index, "risk_score": risk_scores_test})
-submission.to_csv("submissions/cox_submission.csv", index=False)
-
-print("✅ Fichier de soumission généré : submissions/cox_submission.csv")
-
-# Statistiques des scores de risque
-print("\nStatistiques des scores de risque sur le jeu de test:")
-print(f"Min: {risk_scores_test.min():.4f}, Max: {risk_scores_test.max():.4f}")
-print(
-    f"Moyenne: {risk_scores_test.mean():.4f}, Médiane: {np.median(risk_scores_test):.4f}"
-)
-print(f"Écart-type: {risk_scores_test.std():.4f}")
-
-print("🎉 Analyse de survie terminée avec succès !")
+# Créer les répertoires nécessaires
 os.makedirs("models", exist_ok=True)
 os.makedirs("submissions", exist_ok=True)
 os.makedirs("figures", exist_ok=True)
 
-print("Chargement des données...")
-# Charger les données
-X_train = pd.read_csv("data/processed/X_train_prepared.csv", index_col=0)
-y_train = pd.read_csv("data/processed/y_train_prepared.csv", index_col=0)
-X_val = pd.read_csv("data/processed/X_val_prepared.csv", index_col=0)
-y_val = pd.read_csv("data/processed/y_val_prepared.csv", index_col=0)
-X_test = pd.read_csv("data/processed/X_test_prepared.csv", index_col=0)
 
-print(
-    f"Dimensions des données - X_train: {X_train.shape}, y_train: {y_train.shape}"
-)
-print(f"X_val: {X_val.shape}, y_val: {y_val.shape}, X_test: {X_test.shape}")
+def load_prepared_data():
+    """Charge les données préparées et retourne les DataFrames."""
+    print("Chargement des données préparées...")
+    X_train = pd.read_csv("data/processed/X_train_prepared.csv", index_col=0)
+    y_train = pd.read_csv("data/processed/y_train_prepared.csv", index_col=0)
+    X_val = pd.read_csv("data/processed/X_val_prepared.csv", index_col=0)
+    y_val = pd.read_csv("data/processed/y_val_prepared.csv", index_col=0)
+    X_test = pd.read_csv("data/processed/X_test_prepared.csv", index_col=0)
 
-# Vérification des valeurs manquantes
-print(f"Valeurs manquantes dans X_train: {X_train.isnull().sum().sum()}")
-print(f"Valeurs manquantes dans y_train: {y_train.isnull().sum().sum()}")
-print(f"Valeurs manquantes dans X_val: {X_val.isnull().sum().sum()}")
-print(f"Valeurs manquantes dans y_val: {y_val.isnull().sum().sum()}")
+    print(
+        f"Dimensions des données: \n"
+        f"- X_train: {X_train.shape}\n"
+        f"- y_train: {y_train.shape}\n"
+        f"- X_val: {X_val.shape}\n"
+        f"- y_val: {y_val.shape}\n"
+        f"- X_test: {X_test.shape}"
+    )
 
-# Supprimer les lignes avec des valeurs manquantes
-y_train = y_train.dropna()
-y_val = y_val.dropna()
+    # Vérification des valeurs manquantes
+    print(f"Valeurs manquantes dans X_train: {X_train.isnull().sum().sum()}")
+    print(f"Valeurs manquantes dans y_train: {y_train.isnull().sum().sum()}")
 
-# S'assurer que les indices sont communs entre X et y
-common_index_train = X_train.index.intersection(y_train.index)
-common_index_val = X_val.index.intersection(y_val.index)
-
-X_train = X_train.loc[common_index_train]
-y_train = y_train.loc[common_index_train]
-X_val = X_val.loc[common_index_val]
-y_val = y_val.loc[common_index_val]
-
-print(
-    f"Après filtrage des valeurs manquantes - X_train: {X_train.shape}, y_train: {y_train.shape}"
-)
-print(f"X_val: {X_val.shape}, y_val: {y_val.shape}")
-
-# Convertir les colonnes de y en types appropriés
-y_train["OS_STATUS"] = y_train["OS_STATUS"].astype(bool)
-y_val["OS_STATUS"] = y_val["OS_STATUS"].astype(bool)
-
-# Transformer y en format compatible avec scikit-survival
-y_train_survival = np.array(
-    [
-        (status, time)
-        for status, time in zip(y_train["OS_STATUS"], y_train["OS_YEARS"])
-    ],
-    dtype=[("event", bool), ("time", float)],
-)
-
-y_val_survival = np.array(
-    [
-        (status, time)
-        for status, time in zip(y_val["OS_STATUS"], y_val["OS_YEARS"])
-    ],
-    dtype=[("event", bool), ("time", float)],
-)
-
-# Vérification des types et suppression des colonnes non numériques
-print("Types de données dans X_train:")
-print(X_train.dtypes.value_counts())
-
-X_train = X_train.select_dtypes(include=["number"])
-X_val = X_val.select_dtypes(include=["number"])
-X_test = X_test.select_dtypes(include=["number"])
-
-# S'assurer que les mêmes colonnes sont présentes dans tous les ensembles
-common_cols = set(X_train.columns) & set(X_val.columns) & set(X_test.columns)
-X_train = X_train[list(common_cols)]
-X_val = X_val[list(common_cols)]
-X_test = X_test[list(common_cols)]
-
-print(f"Utilisation de {len(common_cols)} caractéristiques communes")
-
-# Initialiser et entraîner le modèle de Cox avec régularisation L2
-print("Entraînement du modèle de Cox...")
-cox_model = CoxPHSurvivalAnalysis(alpha=0.1)  # L2 regularization
-print(f"Dimensions de X_train : {X_train.shape}")
-print(f"Dimensions de y_train_survival : {y_train_survival.shape}")
-
-cox_model.fit(X_train, y_train_survival)
-
-# Évaluer le modèle sur l'ensemble de validation
-risk_scores_val = cox_model.predict(X_val)
-c_index_val = concordance_index_censored(
-    y_val["OS_STATUS"], y_val["OS_YEARS"], risk_scores_val
-)[0]
-print(f"📊 C-index du modèle de Cox sur validation : {c_index_val:.4f}")
-
-# Examiner les coefficients pour comprendre l'importance des caractéristiques
-coef_df = pd.DataFrame(
-    {"Feature": X_train.columns, "Coefficient": cox_model.coef_}
-)
-coef_df["Abs_Coefficient"] = abs(coef_df["Coefficient"])
-coef_df = coef_df.sort_values("Abs_Coefficient", ascending=False)
-
-print("\nTop 10 caractéristiques les plus importantes :")
-for i, row in coef_df.head(10).iterrows():
-    print(f"- {row['Feature']}: {row['Coefficient']:.4f}")
-
-# Visualiser les coefficients
-plt.figure(figsize=(12, 8))
-plt.barh(coef_df.head(15)["Feature"], coef_df.head(15)["Coefficient"])
-plt.xlabel("Coefficient")
-plt.ylabel("Feature")
-plt.title("Top 15 caractéristiques importantes dans le modèle Cox")
-plt.grid(axis="x", linestyle="--", alpha=0.7)
-plt.tight_layout()
-plt.savefig("figures/cox_feature_importance.png")
+    return X_train, y_train, X_val, y_val, X_test
 
 
-# Générer les prédictions sur les données de test
-risk_scores_test_cox = cox_model.predict(X_test)
+def prepare_survival_data(y_df):
+    """Convertit les données de survie en format compatible avec scikit-survival."""
+    # Assurez-vous que OS_STATUS est booléen
+    y_df["OS_STATUS"] = y_df["OS_STATUS"].astype(bool)
+
+    # Créer le format structured array pour scikit-survival
+    y_surv = np.array(
+        [
+            (status, time)
+            for status, time in zip(y_df["OS_STATUS"], y_df["OS_YEARS"])
+        ],
+        dtype=[("event", bool), ("time", float)],
+    )
+
+    return y_surv
 
 
-# Créer le fichier de soumission pour le modèle Cox
-submission_cox = pd.DataFrame(
-    {"ID": X_test.index, "risk_score": risk_scores_test_cox}
-)
-submission_cox.to_csv("submissions/cox_submission.csv", index=False)
+def find_optimal_alpha(X_train, y_train, X_val, y_val, alphas=None):
+    """Trouve la valeur optimale d'alpha (régularisation) pour le modèle Cox."""
+    if alphas is None:
+        alphas = [0.001, 0.01, 0.1, 1.0, 10.0, 100.0]
+
+    best_alpha = None
+    best_score = -np.inf
+    scores = []
+
+    print("Recherche de la meilleure régularisation (alpha)...")
+    for alpha in alphas:
+        model = CoxPHSurvivalAnalysis(alpha=alpha)
+        try:
+            model.fit(X_train, y_train)
+
+            # Évaluer sur la validation
+            pred = model.predict(X_val)
+            score = concordance_index_censored(
+                y_val["event"], y_val["time"], pred
+            )[0]
+            scores.append(score)
+
+            print(f"Alpha = {alpha}: C-index = {score:.4f}")
+
+            if score > best_score:
+                best_score = score
+                best_alpha = alpha
+        except Exception as e:
+            print(f"Erreur avec alpha={alpha}: {e}")
+            scores.append(float("nan"))
+
+    print(f"Meilleur alpha: {best_alpha} (C-index: {best_score:.4f})")
+
+    # Tracer les résultats
+    plt.figure(figsize=(10, 6))
+    plt.semilogx(alphas, scores, "o-")
+    plt.xlabel("Valeur d'alpha (régularisation L2)")
+    plt.ylabel("C-index sur validation")
+    plt.title("Performance du modèle Cox en fonction de la régularisation")
+    plt.grid(True, which="both", ls="--", alpha=0.3)
+    plt.axvline(
+        x=best_alpha,
+        color="r",
+        linestyle="--",
+        label=f"Meilleur alpha = {best_alpha}",
+    )
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig("figures/cox_alpha_tuning.png")
+
+    return best_alpha
 
 
-print("✅ Fichiers de soumission générés :")
-print("   - submissions/cox_submission.csv")
+def train_cox_model(X_train, y_train, alpha=0.1):
+    """Entraîne un modèle de Cox avec la régularisation spécifiée."""
+    print(f"Entraînement du modèle Cox avec alpha={alpha}...")
+
+    # Créer et entraîner le modèle
+    model = CoxPHSurvivalAnalysis(alpha=alpha)
+    model.fit(X_train, y_train)
+
+    return model
 
 
-# Bonus: Visualiser la distribution des scores de risque
-plt.figure(figsize=(10, 6))
-plt.hist(risk_scores_test_cox, bins=30, alpha=0.5, label="Cox")
-plt.title("Distribution des scores de risque sur les données de test")
-plt.xlabel("Score de risque")
-plt.ylabel("Nombre de patients")
-plt.legend()
-plt.grid(alpha=0.3)
-plt.savefig("figures/risk_scores_distribution.png")
+def evaluate_model(model, X, y, dataset_name=""):
+    """Évalue le modèle sur le jeu de données spécifié."""
+    pred = model.predict(X)
+    c_index = concordance_index_censored(y["event"], y["time"], pred)[0]
+    print(f"C-index sur {dataset_name}: {c_index:.4f}")
+    return c_index, pred
 
-print("🎉 Analyse de survie terminée avec succès !")
+
+def visualize_feature_importance(model, feature_names):
+    """Visualise l'importance des caractéristiques du modèle Cox."""
+    coef = pd.Series(model.coef_, index=feature_names)
+    coef_abs = coef.abs().sort_values(ascending=False)
+
+    plt.figure(figsize=(12, 8))
+    coef_abs.plot(kind="bar")
+    plt.title(
+        "Importance des caractéristiques (valeur absolue des coefficients)"
+    )
+    plt.ylabel("Importance")
+    plt.xlabel("Caractéristiques")
+    plt.tight_layout()
+    plt.savefig("figures/cox_feature_importance.png")
+
+    return coef
+
+
+def create_submission(X_test, model, output_file="cox_submission.csv"):
+    """Crée un fichier de soumission avec les prédictions du modèle."""
+    # Prédire les scores de risque
+    risk_scores = model.predict(X_test)
+
+    # Créer le DataFrame de soumission
+    submission = pd.DataFrame({"ID": X_test.index, "risk_score": risk_scores})
+
+    # Sauvegarder
+    submission_path = os.path.join("submissions", output_file)
+    submission.to_csv(submission_path, index=False)
+    print(f"Fichier de soumission généré: {submission_path}")
+
+    return submission
+
+
+def cross_validate_cox(X, y, n_folds=5, alpha=0.1):
+    """Effectue une validation croisée du modèle Cox."""
+    print(f"Validation croisée ({n_folds} folds) du modèle Cox...")
+
+    kf = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+    c_indices = []
+
+    for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
+        X_train_fold, X_val_fold = X.iloc[train_idx], X.iloc[val_idx]
+        y_train_fold = y[train_idx]
+
+        # Construire y_val au format structuré
+        y_val_fold_df = pd.DataFrame(
+            {
+                "OS_STATUS": [y_i[0] for y_i in y[val_idx]],
+                "OS_YEARS": [y_i[1] for y_i in y[val_idx]],
+            }
+        )
+
+        # Entraîner le modèle
+        model = CoxPHSurvivalAnalysis(alpha=alpha)
+        model.fit(X_train_fold, y_train_fold)
+
+        # Évaluer le modèle
+        pred = model.predict(X_val_fold)
+        c_index = concordance_index_censored(
+            y_val_fold_df["OS_STATUS"].astype(bool),
+            y_val_fold_df["OS_YEARS"],
+            pred,
+        )[0]
+
+        c_indices.append(c_index)
+        print(f"Fold {fold+1}/{n_folds}: C-index = {c_index:.4f}")
+
+    mean_c_index = np.mean(c_indices)
+    std_c_index = np.std(c_indices)
+    print(
+        f"Performance moyenne sur {n_folds} folds: C-index = {mean_c_index:.4f} ± {std_c_index:.4f}"
+    )
+
+    return mean_c_index, std_c_index
+
+
+def train_ensemble_model(X_train, y_train, X_val, y_val):
+    """Entraîne un modèle d'ensemble combinant Cox et RandomSurvivalForest."""
+    print("Entraînement d'un modèle d'ensemble...")
+
+    # Trouver le meilleur alpha pour Cox
+    best_alpha = find_optimal_alpha(X_train, y_train, X_val, y_val)
+
+    # Entraîner le modèle Cox
+    cox_model = CoxPHSurvivalAnalysis(alpha=best_alpha)
+    cox_model.fit(X_train, y_train)
+
+    # Entraîner un Random Survival Forest
+    rsf_model = RandomSurvivalForest(
+        n_estimators=100,
+        min_samples_split=10,
+        min_samples_leaf=5,
+        max_features="sqrt",
+        n_jobs=-1,
+        random_state=42,
+    )
+    rsf_model.fit(X_train, y_train)
+
+    # Évaluer les modèles individuels
+    cox_score, cox_pred = evaluate_model(
+        cox_model, X_val, y_val, "validation (Cox)"
+    )
+    rsf_score, rsf_pred = evaluate_model(
+        rsf_model, X_val, y_val, "validation (RSF)"
+    )
+
+    # Créer et évaluer l'ensemble (moyenne des prédictions)
+    ensemble_pred = (cox_pred + rsf_pred) / 2
+    ensemble_c_index = concordance_index_censored(
+        y_val["event"], y_val["time"], ensemble_pred
+    )[0]
+    print(f"C-index sur validation (Ensemble): {ensemble_c_index:.4f}")
+
+    ensemble = {
+        "cox_model": cox_model,
+        "rsf_model": rsf_model,
+        "alpha": best_alpha,
+    }
+
+    return ensemble, ensemble_c_index
+
+
+def main():
+    """Fonction principale pour l'entraînement et l'évaluation des modèles."""
+    # Charger les données
+    X_train, y_train_df, X_val, y_val_df, X_test = load_prepared_data()
+
+    # Préparer les données de survie
+    y_train = prepare_survival_data(y_train_df)
+    y_val = prepare_survival_data(y_val_df)
+
+    # Recherche du meilleur alpha
+    best_alpha = find_optimal_alpha(X_train, y_train, X_val, y_val)
+
+    # Validation croisée
+    cv_score, cv_std = cross_validate_cox(
+        pd.concat([X_train, X_val]),
+        np.concatenate([y_train, y_val]),
+        n_folds=5,
+        alpha=best_alpha,
+    )
+
+    # Entraîner le modèle final avec toutes les données d'entraînement et validation
+    print("Entraînement du modèle final...")
+    X_train_full = pd.concat([X_train, X_val])
+    y_train_full = np.concatenate([y_train, y_val])
+
+    final_model = train_cox_model(X_train_full, y_train_full, alpha=best_alpha)
+
+    # Visualiser l'importance des caractéristiques
+    feature_importance = visualize_feature_importance(
+        final_model, X_train.columns
+    )
+    print("Importance des caractéristiques:")
+    print(feature_importance.sort_values(ascending=False))
+
+    # Créer la soumission
+    submission = create_submission(X_test, final_model)
+
+    # Sauvegarder le modèle
+    joblib.dump(final_model, "models/cox_model_final.pkl")
+    print("Modèle final sauvegardé: models/cox_model_final.pkl")
+
+    # Bonus: Entraîner un modèle d'ensemble
+    ensemble, ensemble_score = train_ensemble_model(
+        X_train, y_train, X_val, y_val
+    )
+
+    # Sauvegarder l'ensemble
+    joblib.dump(ensemble, "models/ensemble_model.pkl")
+    print("Modèle d'ensemble sauvegardé: models/ensemble_model.pkl")
+
+    # Créer une soumission d'ensemble
+    cox_pred_test = ensemble["cox_model"].predict(X_test)
+    rsf_pred_test = ensemble["rsf_model"].predict(X_test)
+    ensemble_pred_test = (cox_pred_test + rsf_pred_test) / 2
+
+    ensemble_submission = pd.DataFrame(
+        {"ID": X_test.index, "risk_score": ensemble_pred_test}
+    )
+    ensemble_submission.to_csv(
+        "submissions/ensemble_submission.csv", index=False
+    )
+    print(
+        "Fichier de soumission d'ensemble généré: submissions/ensemble_submission.csv"
+    )
+
+    print("Traitement terminé avec succès!")
+
+
+if __name__ == "__main__":
+    main()
