@@ -37,7 +37,7 @@ This challenge offers participants a unique opportunity to work with real data f
 - Salim El Ouahdani: [salim.ouahdani@gmail.com](mailto:salim.ouahdani@gmail.com)
 - Marin Mathé: [mathe.marin22@gmail.com](mailto:mathe.marin22@gmail.com)
 - Ayman Rachidi: [ayman.rachidi@etu.ec-lyon.fr](mailto:ayman.rachidi@etu.ec-lyon.fr)
-- Naoya Senoo: [naoya.senoo@etu.ec-lyon.fr](mailto:naoya.senoo@etu.ec-lyon.fr)
+- Naoya Senoo: [senoo.naoya.ns@gmail.com](mailto:senoo.naoya.ns@gmail.com)
 - Anas Tber: [anastber755@gmail.com](mailto:anastber755@gmail.com)
 
 ---
