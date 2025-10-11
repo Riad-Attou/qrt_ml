@@ -1,44 +1,45 @@
-# Prédiction de Survie Globale de patients atteints de Leucémie Myéloïde (par QRT)
+# Global Survival Prediction of Patients with Myeloid Leukemia (by QRT)
 
-## Contexte
-Au cours des dernières années, le secteur médical a de plus en plus adopté des méthodes basées sur l’analyse des données de santé en grande quantité, notamment dans le domaine du pronostic et du traitement de maladies complexes telles que le cancer. Les modèles prédictifs en santé ont transformé les soins aux patients, permettant des stratégies de traitement bien plus adaptées et efficaces. Ces avancées sont particulièrement précieuses en oncologie, où des modèles de prédictions précis peuvent significativement améliorer la qualité et le timing des décisions thérapeutiques.
+## Context
 
-## But
-En partenariat avec l’Institut Gustave Roussy, le Data Challenge de QRT de cette année se concentre sur la prédiction du risque de décès pour les patients diagnostiqués avec un cancer du sang, plus précisément un sous-type de leucémie myéloïde adulte. Pour ces patients, l’évaluation du risque est mesurée par la survie globale — la période allant du diagnostic initial jusqu’au décès du patient ou jusqu’au dernier suivi enregistré.
+In recent years, the medical field has increasingly adopted methods based on large-scale health data analysis, particularly for prognosis and treatment of complex diseases such as cancer. Predictive models in healthcare have transformed patient care, enabling much more personalized and effective treatment strategies. These advances are especially valuable in oncology, where accurate predictive models can significantly improve the quality and timing of therapeutic decisions.
 
-Pourquoi est-ce important ? Estimer le pronostic d’un patient est essentiel pour adapter son approche thérapeutique. Les patients identifiés comme ayant un profil à faible risque peuvent recevoir des thérapies de soutien visant à améliorer les paramètres sanguins et la qualité de vie globale, tandis que les patients identifiés comme à haut risque peuvent être prioritaires pour des options de traitement plus intensives, telles que la greffe de cellules souches hématopoïétiques.
+## Objective
 
-Des prédictions précises des risques pourraient donc conduire à de meilleures décisions cliniques, une meilleure qualité de vie des patients, et à une utilisation plus efficace des ressources au sein des établissements de santé.
+In partnership with the Gustave Roussy Institute, this year’s QRT Data Challenge focuses on predicting the risk of death for patients diagnosed with blood cancer—specifically, a subtype of adult myeloid leukemia. For these patients, risk assessment is measured by **overall survival**, defined as the period from initial diagnosis to either the patient’s death or the last recorded follow-up.
 
-Ce challenge offre aux participants une occasion unique de travailler avec des données réelles provenant de 24 centres cliniques et de contribuer à une application concrète de la science des données au domaine médical.
+Why is this important?  
+Estimating a patient’s prognosis is crucial for tailoring their therapeutic approach. Patients identified as **low-risk** can receive supportive therapies aimed at improving blood parameters and overall quality of life, while those identified as **high-risk** may be prioritized for more intensive treatments, such as **hematopoietic stem cell transplantation**.
 
+Accurate risk prediction can therefore lead to better clinical decisions, improved patient quality of life, and a more efficient use of healthcare resources.
 
-## Étapes pour installer les dépendances
+This challenge offers participants a unique opportunity to work with real data from **24 clinical centers** and to contribute to a concrete application of data science in the medical field.
 
-1. Clonez ce dépôt GitHub :
+## Steps to Install Dependencies
+
+1. Clone this GitHub repository:
 
    ```bash
    git clone https://github.com/Riad-Attou/qrt_ml.git
    cd qrt_ml
    ```
 
-2. Exécutez la commande suivante pour installer toutes les dépendances répertoriées :
+2. Run the following command to install all listed dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
+## Authors
 
+- Riad Attou: [attou.rd@gmail.com](mailto:attou.rd@gmail.com)
+- Asma El Mouhsine: [asma.elmouhsine@outlook.com](mailto:asma.elmouhsine@outlook.com)
+- Salim El Ouahdani: [salim.ouahdani@gmail.com](mailto:salim.ouahdani@gmail.com)
+- Marin Mathé: [mathe.marin22@gmail.com](mailto:mathe.marin22@gmail.com)
+- Ayman Rachidi: [ayman.rachidi@etu.ec-lyon.fr](mailto:ayman.rachidi@etu.ec-lyon.fr)
+- Naoya Senoo: [naoya.senoo@etu.ec-lyon.fr](mailto:naoya.senoo@etu.ec-lyon.fr)
+- Anas Tber: [anastber755@gmail.com](mailto:anastber755@gmail.com)
 
-## Auteurs
-
-- Riad Attou : attou.rd@gmail.com
-- Asma El Mouhsine : asma.elmouhsine@outlook.com
-- Salim El Ouahdani : salim.ouahdani@gmail.com
-- Marin Mathé : mathe.marin22@gmail.com
-- Ayman Rachidi : ayman.rachidi@etu.ec-lyon.fr
-- Naoya Senoo : 
-- Anas Tber : anastber755@gmail.com
 ---
 
-*Challenge Data - QRT - Centrale Lyon - 2024-2025*
+*Data Challenge - QRT - Centrale Lyon - 2024-2025*
