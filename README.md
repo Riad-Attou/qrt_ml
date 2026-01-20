@@ -42,4 +42,4 @@ This challenge offers participants a unique opportunity to work with real data f
 
 ---
 
-*Data Challenge - QRT - Centrale Lyon - 2024-2025
+*Data Challenge - QRT - Centrale Lyon - 2024-2025*
